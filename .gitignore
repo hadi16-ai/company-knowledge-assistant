@@ -9,8 +9,11 @@ __pycache__/
 # Environment Variables
 .env
 
-# Vector Database
-chroma_db/
+# Uploaded documents and vector database
+data/uploads/*
+!data/uploads/.gitkeep
+data/chroma_db/*
+!data/chroma_db/.gitkeep
 
 # Streamlit
 .streamlit/
