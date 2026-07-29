@@ -13,37 +13,6 @@
 
 Company knowledge is often distributed across lengthy PDFs, policies, onboarding materials, and internal reference documents. Finding reliable answers is slow, while relying on memory or manual search makes it difficult to verify where information came from. This application provides a focused knowledge interface: users upload company PDFs, ask questions in natural language, and receive answers grounded in retrieved document context with grouped source citations.
 
-## Screenshots
-
-### Home Interface
-
-The main application interface with document management, conversation history, and the AI workspace.
-
-![Home Interface](assets/home.jpeg)
-
----
-
-### AI Answer with Grounded Citations
-
-Example of a grounded response generated from the uploaded documents, along with grouped source citations.
-
-![AI Answer](assets/answer.png)
-
----
-
-### Developer Diagnostics
-
-Built-in diagnostics showing pipeline status, embedding model, vector store, and document statistics.
-
-![Developer Diagnostics](assets/diagnostics.png)
-
----
-
-### Hallucination Prevention
-
-The assistant refuses to fabricate information when the uploaded documents do not contain the requested information, ensuring answers remain grounded in the knowledge base.
-
-![Grounded Response](assets/grounded-response.jpeg)
 
 ## Features
 
