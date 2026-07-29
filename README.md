@@ -2,6 +2,8 @@
 
 An AI-powered enterprise knowledge assistant that enables employees to ask questions about company documents using Retrieval-Augmented Generation (RAG).
 
+The assistant now provides semantic ChromaDB retrieval, Gemini free-tier answer generation, and filename/page citations. Add `GEMINI_API_KEY` to `.env` to enable answers; document ingestion and embeddings remain local.
+
 ---
 
 ## Features
