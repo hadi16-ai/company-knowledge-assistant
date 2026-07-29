@@ -19,7 +19,7 @@ Company knowledge is often distributed across lengthy PDFs, policies, onboarding
 
 The main application interface with document management, conversation history, and the AI workspace.
 
-![Home Interface](assets/home.png)
+![Home Interface](assets/home.jpeg)
 
 ---
 
@@ -43,7 +43,7 @@ Built-in diagnostics showing pipeline status, embedding model, vector store, and
 
 The assistant refuses to fabricate information when the uploaded documents do not contain the requested information, ensuring answers remain grounded in the knowledge base.
 
-![Grounded Response](assets/grounded-response.png)
+![Grounded Response](assets/grounded-response.jpeg)
 
 ## Features
 
