@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import PureWindowsPath
+
 import streamlit as st
 
-from backend.embeddings import EmbeddingConfigError, get_embeddings
+from backend.embeddings import EMBEDDING_MODEL, EmbeddingConfigError, get_embeddings
 from backend.ingest import check_configuration, ingest_uploaded_files, validate_pipeline_ready
-from backend.rag import AnswerGenerationError, answer_question
+from backend.rag import DEFAULT_GEMINI_MODEL, AnswerGenerationError, answer_question
 from backend.utils import ensure_directories, list_uploaded_files
 from backend.vectorstore import get_indexed_document_count, get_indexed_sources, get_vectorstore
 
@@ -29,24 +32,44 @@ def indexed_status() -> tuple[int, list[str]]:
         return 0, []
 
 
+def display_filename(source: str) -> str:
+    """Return a presentation-safe filename for a document source."""
+    return PureWindowsPath(source).name or "Unknown document"
+
+
 def render_sidebar() -> None:
     st.sidebar.title("📚 Knowledge Base")
     st.sidebar.caption("Upload company PDFs, then ask grounded questions about them.")
     st.sidebar.divider()
-    st.sidebar.subheader("Pipeline Status")
-    validation_error = check_configuration()
-    if validation_error:
-        st.sidebar.error(validation_error)
-    else:
-        st.sidebar.success("Ingestion pipeline ready")
     chunk_count, indexed_sources = indexed_status()
-    st.sidebar.metric("Indexed chunks", chunk_count)
-    st.sidebar.metric("Indexed documents", len(indexed_sources))
-    st.sidebar.metric("Saved uploads", len(list_uploaded_files()))
     if indexed_sources:
         st.sidebar.subheader("Indexed Files")
         for name in indexed_sources:
-            st.sidebar.caption(f"• {name}")
+            st.sidebar.caption(f"• {display_filename(name)}")
+    st.sidebar.divider()
+    st.sidebar.subheader("💬 Conversation")
+    st.sidebar.success("● Current session")
+    questions = [message["content"] for message in st.session_state.get("messages", []) if message["role"] == "user"]
+    if questions:
+        for index, question in enumerate(questions, start=1):
+            st.sidebar.caption(f"{index}. {question}")
+    else:
+        st.sidebar.caption("No questions in this session yet.")
+    if st.sidebar.button("🗑 Clear Conversation", use_container_width=True):
+        st.session_state["messages"] = []
+        st.rerun()
+    with st.sidebar.expander("Developer Diagnostics", expanded=False):
+        validation_error = check_configuration()
+        if validation_error:
+            st.error(validation_error)
+        else:
+            st.success("Pipeline ready")
+        st.metric("Documents", len(indexed_sources))
+        st.metric("Chunks", chunk_count)
+        st.metric("Uploads", len(list_uploaded_files()))
+        st.caption(f"**Embedding Model**  \n{EMBEDDING_MODEL}")
+        st.caption(f"**Gemini Model**  \n{os.getenv('GEMINI_MODEL', DEFAULT_GEMINI_MODEL)}")
+        st.caption("**Vector Store**  \nChromaDB (local persistent store)")
 
 
 def render_ingestion() -> None:
@@ -58,7 +81,9 @@ def render_ingestion() -> None:
         st.info(f"{len(uploaded_files)} file(s) selected.")
         with st.expander("Selected files"):
             for uploaded in uploaded_files:
-                st.write(f"• {uploaded.name} ({uploaded.size:,} bytes)")
+                st.write(f"• {display_filename(uploaded.name)} ({uploaded.size:,} bytes)")
+    else:
+        st.info("No PDFs selected yet. Add a company document to build your knowledge base.")
     if st.button("Process Documents", type="primary", disabled=not uploaded_files):
         validation_error = validate_pipeline_ready()
         if validation_error:
@@ -68,8 +93,9 @@ def render_ingestion() -> None:
         status = st.empty()
         file_payloads = [(uploaded.name, uploaded.getvalue()) for uploaded in uploaded_files or []]
         def update_progress(current: int, total: int, filename: str) -> None:
-            progress_bar.progress(current / total, text=f"Processing {current}/{total}: {filename}")
-            status.info(f"Processing **{filename}** ({current} of {total})…")
+            display_name = display_filename(filename)
+            progress_bar.progress(current / total, text=f"Processing {current}/{total}: {display_name}")
+            status.info(f"Processing **{display_name}** ({current} of {total})…")
         results = ingest_uploaded_files(file_payloads, progress_callback=update_progress)
         progress_bar.progress(1.0, text="Ingestion complete.")
         status.empty()
@@ -84,27 +110,47 @@ def render_ingestion() -> None:
         if failed_count:
             st.error(f"Failed to process {failed_count} file(s).")
         for result in results:
+            display_name = display_filename(result.filename)
             if result.success:
-                st.success(f"**{result.filename}** — {result.message} ({result.chunks_count} chunks)")
+                st.success(f"**{display_name}** — {result.message} ({result.chunks_count} chunks)")
             elif result.skipped:
-                st.warning(f"**{result.filename}** — {result.message}")
+                st.warning(f"**{display_name}** — {result.message}")
             else:
-                st.error(f"**{result.filename}** — {result.message}")
+                st.error(f"**{display_name}** — {result.message}")
 
 
 def render_sources(sources) -> None:
+    """Render retrieved citations as one expandable card per document."""
     if not sources:
+        st.info("No relevant context was found in the indexed documents for this question.")
         return
-    st.markdown("#### Sources")
-    seen: set[tuple[str, int | None]] = set()
+    st.markdown("#### 📚 Sources")
+    grouped_sources: dict[str, dict[int | None, float]] = {}
     for source in sources:
-        key = (source.filename, source.page_number)
-        if key in seen:
-            continue
-        seen.add(key)
-        page = f", page {source.page_number}" if source.page_number is not None else ""
-        with st.expander(f"{source.filename}{page} · relevance {source.score:.0%}"):
-            st.write(source.excerpt)
+        filename = display_filename(source.filename)
+        pages = grouped_sources.setdefault(filename, {})
+        pages[source.page_number] = max(pages.get(source.page_number, 0.0), source.score)
+    for filename, pages in grouped_sources.items():
+        with st.expander(f"📄 {filename}"):
+            st.caption("Referenced Pages")
+            for page_number, score in pages.items():
+                page_label = f"Page {page_number}" if page_number is not None else "Page unavailable"
+                st.markdown(f"• {page_label} ({score:.0%})")
+
+
+def render_answer(text: str, sources) -> None:
+    """Render a generated response in a distinct answer card with citations."""
+    with st.container(border=True):
+        st.markdown("### 🤖 AI Answer")
+        st.markdown(text)
+        st.divider()
+        render_sources(sources)
+
+
+def render_user_question(question: str) -> None:
+    """Render a user prompt as a chronological conversation step."""
+    st.markdown("#### 👤 User Question")
+    st.markdown(question)
 
 
 def render_qa() -> None:
@@ -112,28 +158,37 @@ def render_qa() -> None:
     st.write("Answers are generated from the most relevant indexed document chunks.")
     chunk_count, _ = indexed_status()
     if not chunk_count:
-        st.info("No indexed documents yet. Upload and process a PDF to begin asking questions.")
+        st.info("No PDFs are ready yet. Upload and process a document before asking a question.")
         return
-    for message in st.session_state.get("messages", []):
+    messages = st.session_state.get("messages", [])
+    for message in messages:
         with st.chat_message(message["role"]):
-            st.markdown(message["content"])
             if message["role"] == "assistant":
-                render_sources(message.get("sources", []))
+                render_answer(message["content"], message.get("sources", []))
+            else:
+                render_user_question(message["content"])
+    if not messages:
+        st.info("Ask a question to search your company knowledge base and receive a grounded answer.")
     question = st.chat_input("Ask a question about your company documents")
     if not question:
         return
     st.session_state.setdefault("messages", []).append({"role": "user", "content": question})
     with st.chat_message("user"):
-        st.markdown(question)
+        render_user_question(question)
     with st.chat_message("assistant"):
-        with st.spinner("Searching documents and drafting an answer…"):
+        with st.status("🔍 Searching documents...", expanded=True) as status:
+            st.write("🔍 Searching documents...")
+            st.write("📚 Retrieving context...")
+            status.update(label="🤖 Generating answer...", state="running")
             try:
                 result = answer_question(question)
             except AnswerGenerationError as exc:
+                status.update(label="Unable to generate an answer", state="error")
                 st.error(str(exc))
                 return
-            st.markdown(result.text)
-            render_sources(result.sources)
+            status.update(label="Answer generated", state="complete", expanded=False)
+        render_answer(result.text, result.sources)
+        st.success("✓ Grounded answer generated from retrieved documents.")
     st.session_state["messages"].append({"role": "assistant", "content": result.text, "sources": result.sources})
 
 
