@@ -50,7 +50,7 @@ class Settings(BaseSettings):
 
     # --- Gemini ---
     gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
-    gemini_model: str = Field(default="gemini-2.0-flash", alias="GEMINI_MODEL")
+    gemini_model: str = Field(default="gemini-3-flash-preview", alias="GEMINI_MODEL")
     gemini_temperature: float = Field(default=0.2, alias="GEMINI_TEMPERATURE")
     gemini_max_output_tokens: int = Field(default=800, alias="GEMINI_MAX_OUTPUT_TOKENS")
 

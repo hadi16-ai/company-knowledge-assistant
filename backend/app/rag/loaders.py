@@ -41,6 +41,6 @@ def load_pdf(file_path: Path) -> list[Document]:
         raise PDFLoadError(f"No content extracted from PDF: {file_path.name}")
 
     for doc in documents:
-        doc.metadata.setdefault("source", file_path.name)
+        doc.metadata["source"] = file_path.name
 
     return documents

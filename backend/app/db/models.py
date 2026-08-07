@@ -52,7 +52,11 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[UserRole] = mapped_column(Enum(UserRole, name="user_role"), nullable=False, default=UserRole.EMPLOYEE)
+    role: Mapped[UserRole] = mapped_column(
+        Enum(UserRole, name="user_role", values_callable=lambda enum_cls: [member.value for member in enum_cls]),
+        nullable=False,
+        default=UserRole.EMPLOYEE,
+    )
     is_active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_active_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -69,7 +73,13 @@ class Document(Base):
     filename: Mapped[str] = mapped_column(String(500), nullable=False)
     storage_path: Mapped[str] = mapped_column(String(1000), nullable=False)
     status: Mapped[DocumentStatus] = mapped_column(
-        Enum(DocumentStatus, name="document_status"), nullable=False, default=DocumentStatus.PENDING
+        Enum(
+            DocumentStatus,
+            name="document_status",
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
+        nullable=False,
+        default=DocumentStatus.PENDING,
     )
     chunk_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
