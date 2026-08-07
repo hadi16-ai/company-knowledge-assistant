@@ -1,157 +1,143 @@
-# Enterprise Company Knowledge Assistant
+# Enterprise AI Knowledge Platform
 
-> A Streamlit-based Retrieval-Augmented Generation (RAG) application that turns company PDF documents into a grounded, conversational knowledge workspace.
+> A production-oriented Retrieval-Augmented Generation (RAG) platform that turns company documents into a grounded, multi-user conversational knowledge workspace — FastAPI + Next.js + PostgreSQL + Qdrant + MinIO, orchestrated with Docker Compose.
 
-[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-UI-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io/)
-[![ChromaDB](https://img.shields.io/badge/ChromaDB-Vector%20Database-6D4AFF)](https://www.trychroma.com/)
+[![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Next.js](https://img.shields.io/badge/Next.js-Frontend-000000?logo=next.js&logoColor=white)](https://nextjs.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Metadata-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Qdrant](https://img.shields.io/badge/Qdrant-Vector%20Database-DC244C)](https://qdrant.tech/)
 [![Gemini](https://img.shields.io/badge/Gemini-Grounded%20Generation-4285F4?logo=google&logoColor=white)](https://ai.google.dev/)
-[![HuggingFace](https://img.shields.io/badge/Hugging%20Face-Embeddings-FFD21E?logo=huggingface&logoColor=black)](https://huggingface.co/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](#license)
+
+> This is v2 of the project, rebuilt from a single-file Streamlit prototype into a real multi-service platform per [`ARCHITECTURE_REVIEW.md`](./ARCHITECTURE_REVIEW.md), which remains the source of truth for the overall roadmap.
 
 ## Business Problem
 
-Company knowledge is often distributed across lengthy PDFs, policies, onboarding materials, and internal reference documents. Finding reliable answers is slow, while relying on memory or manual search makes it difficult to verify where information came from. This application provides a focused knowledge interface: users upload company PDFs, ask questions in natural language, and receive answers grounded in retrieved document context with grouped source citations.
+Company knowledge is often distributed across lengthy PDFs, policies, onboarding materials, and internal reference documents. Finding reliable answers is slow, while relying on memory or manual search makes it difficult to verify where information came from. This platform provides a grounded knowledge interface: users upload company PDFs, ask questions in natural language, and receive streamed answers backed by retrieved document context with source citations — behind real authentication, on infrastructure that survives a redeploy.
 
+## Features (Phase 1)
 
-## Features
-
-- Multi-document RAG
-- Semantic Search
-- ChromaDB Vector Database
-- HuggingFace Embeddings
-- Gemini Integration
-- Grounded Responses
-- Grouped Source Citations
-- Conversation History
-- Enterprise UI
-- Developer Diagnostics
+- FastAPI REST backend with JWT authentication (Admin / Employee roles)
+- Next.js 16 (App Router) chat UI with streamed, token-by-token answers
+- Async ingestion: uploads are validated, stored in MinIO, and processed by Celery workers — the API never blocks on chunking/embedding
+- Local Hugging Face embeddings (`BAAI/bge-small-en-v1.5`) — zero-cost, offline-capable
+- Qdrant vector store, one collection per organization (multi-tenant-ready)
+- PostgreSQL for users, organizations, document registry, and query audit log
+- Gemini answer generation via the official SDK, streamed over Server-Sent Events
+- Fully containerized: `docker-compose up` runs the entire stack
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    A["PDF Upload"] --> B["Chunking"]
-    B --> C["Embedding"]
-    C --> D["ChromaDB"]
-    D --> E["Retriever"]
-    E --> F["Context Builder"]
-    F --> G["Gemini"]
-    G --> H["Grounded Answer"]
+    subgraph Client
+        W["Next.js Web App"]
+    end
+    subgraph API["FastAPI"]
+        AU["Auth"]
+        DOC["Documents"]
+        CHAT["Chat (SSE)"]
+    end
+    subgraph Async
+        Q["Redis Queue"]
+        CW["Celery Worker"]
+    end
+    subgraph Data
+        PG["PostgreSQL"]
+        QD["Qdrant"]
+        S3["MinIO"]
+    end
+
+    W -->|REST + SSE| API
+    AU --> PG
+    DOC --> S3
+    DOC --> Q
+    Q --> CW
+    CW --> S3
+    CW --> QD
+    CW --> PG
+    CHAT --> QD
+    CHAT -->|generateContent| Gemini["Gemini API"]
+    CHAT --> PG
 ```
 
-Uploaded PDFs are parsed and split into text chunks. The chunks are embedded with a local Hugging Face model and stored in a persistent ChromaDB collection. For each question, the application retrieves the most relevant chunks, builds bounded context with source metadata, and sends that context to Gemini to generate an answer grounded in the retrieved documents.
+Uploaded PDFs are stored in MinIO and queued for a Celery worker, which loads, chunks, embeds (locally), and indexes them into the organization's Qdrant collection while PostgreSQL tracks ingestion status. Questions are answered by retrieving the most relevant chunks from Qdrant, building bounded context with citations, and streaming a grounded answer from Gemini back to the browser over SSE. Every query is logged to `query_log` for audit and future analytics.
 
 ## Why RAG Instead of Fine-Tuning?
 
-RAG is a better fit for document-backed company knowledge because the source material can change frequently. New or revised PDFs can be added to the knowledge base without retraining a model. Retrieval also keeps the answer tied to the relevant document chunks and supports source citations, making responses easier to verify. Fine-tuning is better suited to changing model behavior or style; it is not an efficient mechanism for maintaining a changing set of company documents.
+RAG is a better fit for document-backed company knowledge because the source material can change frequently. New or revised PDFs can be added to the knowledge base without retraining a model. Retrieval also keeps the answer tied to the relevant document chunks and supports source citations, making responses easier to verify.
 
 ## Tech Stack
 
 | Layer | Technology | Purpose |
 | --- | --- | --- |
-| Application UI | Streamlit | Conversational document Q&A interface, upload flow, and diagnostics |
-| Language | Python | Application and pipeline implementation |
-| Document Processing | PyPDF / LangChain | PDF loading and document handling |
-| Chunking | RecursiveCharacterTextSplitter | Splits extracted content into overlapping chunks |
-| Embeddings | Hugging Face `BAAI/bge-small-en-v1.5` | Creates local semantic embeddings |
-| Vector Database | ChromaDB | Persists and searches embedded document chunks |
-| Generation | Google Gemini API | Generates answers from retrieved context |
-| Configuration | python-dotenv | Loads the Gemini API key and optional model setting |
+| Frontend | Next.js 16 (App Router) + shadcn/ui + Tailwind | Chat UI, auth, document upload |
+| Backend API | FastAPI | Auth, document, and chat endpoints; async by default |
+| Database | PostgreSQL 16 | Organizations, users, documents, query log |
+| Vector Database | Qdrant | Per-organization semantic search collections |
+| Object Storage | MinIO (S3-compatible) | Permanent original-document storage |
+| Async Queue | Celery + Redis | Non-blocking document ingestion |
+| Embeddings | Hugging Face `BAAI/bge-small-en-v1.5` (local) | Semantic chunk embeddings, no API cost |
+| Generation | Google Gemini API (`google-generativeai` SDK) | Streamed, grounded answer generation |
+| Auth | JWT (access + refresh) | Stateless, role-aware authentication |
 
 ## Project Structure
 
 ```text
 company-knowledge-assistant/
-├── app.py                     # Streamlit application and UI presentation
-├── backend/
-│   ├── context.py              # Retrieved-context and citation construction
-│   ├── embeddings.py           # Hugging Face embedding configuration
-│   ├── ingest.py               # PDF ingestion orchestration
-│   ├── loaders.py              # PDF loading and metadata preparation
-│   ├── rag.py                  # Grounded Gemini answer generation
-│   ├── retrieval.py            # ChromaDB semantic retrieval
-│   ├── splitter.py             # Text chunking configuration
-│   ├── utils.py                # Paths, environment, and upload helpers
-│   └── vectorstore.py          # ChromaDB persistence operations
-├── data/
-│   ├── uploads/                # Saved PDF uploads
-│   └── chroma_db/              # Persistent ChromaDB data
-├── assets/                     # Project assets
-├── .env.example                # Environment variable template
-├── requirements.txt            # Python dependencies
+├── backend/                    # FastAPI service
+│   ├── app/
+│   │   ├── api/v1/              # auth, documents, chat routers
+│   │   ├── core/                 # settings, JWT/password security, logging
+│   │   ├── db/                   # SQLAlchemy models, session, seed
+│   │   ├── rag/                  # loaders, splitter, embeddings, Qdrant store, Gemini
+│   │   ├── storage/               # MinIO/S3 client
+│   │   ├── workers/               # Celery app + ingestion task
+│   │   ├── schemas/               # Pydantic request/response models
+│   │   ├── deps.py                # JWT auth dependencies
+│   │   └── main.py                # FastAPI app entrypoint
+│   ├── alembic/                  # database migrations
+│   ├── requirements.txt
+│   └── Dockerfile
+├── frontend/                   # Next.js app
+│   ├── app/                      # login, register, chat, knowledge routes
+│   ├── components/               # shadcn/ui + feature components
+│   ├── lib/                       # API client, auth context
+│   └── Dockerfile
+├── docker-compose.yml           # postgres, qdrant, minio, redis, api, worker, web
+├── ARCHITECTURE_REVIEW.md       # v2 architecture source of truth
 └── README.md
 ```
 
-## Installation
+## Running Locally
+
+Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/).
 
 1. Clone the repository and open the project directory.
+2. Configure the backend environment:
 
    ```bash
-   git clone <repository-url>
-   cd company-knowledge-assistant
+   cp backend/.env.example backend/.env
    ```
 
-2. Create and activate a virtual environment.
+   Set `GEMINI_API_KEY` and generate a strong `JWT_SECRET_KEY` in `backend/.env`. The Postgres/Qdrant/MinIO/Redis connection settings already match the services docker-compose starts, so they don't need to change for local use.
+
+3. Start the full stack:
 
    ```bash
-   python -m venv venv
+   docker-compose up --build
    ```
 
-   **Windows (PowerShell)**
+   This runs database migrations automatically, then starts the API (`:8000`), the Celery worker, and the web app (`:3000`).
 
-   ```powershell
-   .\venv\Scripts\Activate.ps1
-   ```
+4. Open [http://localhost:3000](http://localhost:3000), register the first account (it is automatically granted the Admin role), upload a PDF from **Knowledge base**, and ask a question from **Ask questions**.
 
-   **macOS / Linux**
+API docs (Swagger UI) are available at [http://localhost:8000/docs](http://localhost:8000/docs).
 
-   ```bash
-   source venv/bin/activate
-   ```
+## Roadmap
 
-3. Install dependencies.
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. Create a `.env` file from the provided template and set a Gemini API key.
-
-   ```bash
-   copy .env.example .env
-   ```
-
-   On macOS or Linux, use `cp .env.example .env` instead. Then update:
-
-   ```env
-   GEMINI_API_KEY=your_gemini_api_key_here
-   ```
-
-   `GEMINI_MODEL` is optional; the application uses its configured default when it is not set. Embeddings run locally, so they do not require an API key.
-
-5. Start the application.
-
-   ```bash
-   streamlit run app.py
-   ```
-
-## Example Workflow
-
-1. Open the **Upload documents** tab and select one or more company PDFs.
-2. Select **Process Documents** to extract text, create embeddings, and store document chunks in ChromaDB.
-3. Open the **Ask questions** tab and enter a question such as: `What is the company leave policy?`
-4. Review the grounded answer and expand the grouped source cards to see the contributing document and referenced pages.
-5. Continue asking questions; the current conversation remains available in the session sidebar until **Clear Conversation** is selected.
-
-## Future Improvements
-
-- Authentication and role-based access controls
-- Cloud deployment and managed document storage
-- Support for additional document formats
-- Document lifecycle management, including replacement and deletion workflows
-- Evaluation datasets and retrieval-quality reporting
-- Multi-user conversation persistence
+Phase 1 (this release) covers the foundation: FastAPI/Next.js/Postgres/Qdrant/MinIO/Celery, JWT auth, and streamed answers. See [`ARCHITECTURE_REVIEW.md`](./ARCHITECTURE_REVIEW.md) for the full three-phase roadmap — hybrid search, reranking, conversation memory, multi-tenancy, RBAC, OCR, and enterprise integrations.
 
 ## License
 

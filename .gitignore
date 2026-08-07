@@ -8,15 +8,21 @@ __pycache__/
 
 # Environment Variables
 .env
+backend/.env
+frontend/.env.local
 
-# Uploaded documents and vector database
+# v1 (Streamlit) local storage — superseded by Postgres/Qdrant/MinIO in v2
 data/uploads/*
 !data/uploads/.gitkeep
 data/chroma_db/*
 !data/chroma_db/.gitkeep
+chroma_db/
 
-# Streamlit
-.streamlit/
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/next-env.d.ts
 
 # IDE
 .vscode/

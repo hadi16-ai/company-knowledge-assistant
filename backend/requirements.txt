@@ -1,0 +1,48 @@
+# --- Web framework ---
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-multipart>=0.0.12
+
+# --- Settings / config ---
+pydantic>=2.9.0
+pydantic-settings>=2.6.0
+email-validator>=2.2.0
+python-dotenv>=1.0.0
+
+# --- Database ---
+sqlalchemy>=2.0.35
+alembic>=1.13.3
+psycopg2-binary>=2.9.9
+
+# --- Auth ---
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+bcrypt==4.0.1  # passlib 1.7.4 predates bcrypt's 4.1+ API changes; pin to the last compatible release
+
+# --- RAG pipeline ---
+langchain-core>=0.3.0
+langchain-community>=0.3.0
+langchain-huggingface>=0.1.0
+langchain-text-splitters>=0.3.0
+langchain-qdrant>=0.2.0
+sentence-transformers>=3.0.0
+pypdf>=4.0.0
+qdrant-client>=1.11.0
+
+# --- LLM ---
+google-genai>=1.0.0
+
+# --- Object storage ---
+boto3>=1.35.0
+
+# --- Async task queue ---
+celery>=5.4.0
+redis>=5.1.0
+
+# --- Logging ---
+python-json-logger>=2.0.7
+
+# --- Testing ---
+pytest>=8.3.0
+pytest-mock>=3.14.0
+httpx>=0.27.0

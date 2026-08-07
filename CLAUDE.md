@@ -4,62 +4,53 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This App Does
 
-A Streamlit-based RAG (Retrieval-Augmented Generation) application for conversational Q&A over company PDF documents. Users upload PDFs → documents are chunked, embedded, and stored locally → questions are answered by Gemini using retrieved chunks as grounded context with source citations.
+An Enterprise AI Knowledge Platform: a FastAPI + Next.js RAG (Retrieval-Augmented Generation) application for conversational Q&A over company PDF documents. Users upload PDFs → an async Celery worker chunks, embeds, and stores them in Qdrant → questions are answered by Gemini (streamed over SSE) using retrieved chunks as grounded context with source citations. This is v2, rebuilt from a Streamlit prototype per [`ARCHITECTURE_REVIEW.md`](./ARCHITECTURE_REVIEW.md), which remains the source of truth for the overall multi-phase roadmap — consult it before making architectural changes.
 
 ## Development Commands
 
-```powershell
-# Activate virtual environment (Windows PowerShell)
-.\venv\Scripts\Activate.ps1
+```bash
+# Configure environment (one-time)
+cp backend/.env.example backend/.env
+# then set GEMINI_API_KEY and JWT_SECRET_KEY in backend/.env
 
-# Install dependencies
-pip install -r requirements.txt
-
-# Run the application (hot-reloads on file save)
-streamlit run app.py
+# Run the full stack (Postgres, Qdrant, MinIO, Redis, API, worker, web)
+docker-compose up --build
 ```
 
-**No build, test, or lint tooling exists.** There is no test suite, no `pyproject.toml`, and no CI pipeline. Edit files and Streamlit reloads.
+- API: http://localhost:8000 (Swagger docs at `/docs`)
+- Web: http://localhost:3000
 
-## Environment Setup
+No Docker? You can run pieces natively for backend-only iteration: `pip install -r backend/requirements.txt`, point `DATABASE_URL`/`QDRANT_URL`/`S3_ENDPOINT_URL`/`REDIS_URL` at real instances, then `uvicorn app.main:app --reload` (from `backend/`) and `celery -A app.workers.celery_app worker -Q ingestion` in a second terminal. For the frontend: `cd frontend && npm run dev`.
 
-Copy `.env.example` to `.env` and set `GEMINI_API_KEY`. The `GEMINI_MODEL` variable is optional (defaults to `gemini-3-flash-preview` in `backend/rag.py:15`).
+**Testing/linting:** `cd backend && pytest`. `cd frontend && npm run lint && npm run build`. No CI pipeline exists yet (Phase 2).
 
 ## Architecture
 
-**Two-phase pipeline:**
+**Two-phase pipeline, same shape as v1, now async and multi-tenant-ready:**
 
-**Ingestion** (`backend/ingest.py` orchestrates): PDF upload → save to `data/uploads/` → `loaders.py` (PyPDFLoader) → `splitter.py` (1000-char chunks, 200-char overlap) → `embeddings.py` (HuggingFace `BAAI/bge-small-en-v1.5`, runs locally) → `vectorstore.py` (ChromaDB at `data/chroma_db/`, collection `company_documents`).
+**Ingestion** (`backend/app/api/v1/documents.py` → `backend/app/workers/tasks.py`): PDF upload → validate type/size → store in MinIO (`orgs/{org_id}/docs/{doc_id}/{filename}`) → create `documents` row (status `pending`) → enqueue Celery task → return 202 immediately. The worker downloads the file, runs `rag/loaders.py` (PyPDFLoader) → `rag/splitter.py` (1000-char chunks, 200-char overlap) → `rag/embeddings.py` (HuggingFace `BAAI/bge-small-en-v1.5`, local) → `rag/vectorstore.py` (Qdrant, collection `{prefix}_{org_id}`), then updates the `documents` row to `ready`/`failed`.
 
-**Retrieval/Q&A** (`backend/rag.py`): User question → embed with same HuggingFace model → `retrieval.py` fetches top-4 chunks by similarity → `context.py` builds bounded context (max 12,000 chars) with labeled source references → raw HTTP POST to Gemini API → `RAGAnswer` dataclass returned to `app.py`.
+**Retrieval/Q&A** (`backend/app/api/v1/chat.py` → `backend/app/rag/rag.py`): question → `rag/retrieval.py` fetches top-k chunks from the caller's org Qdrant collection → `rag/context.py` builds bounded context (default 12,000 chars) with labeled source references → `google-generativeai` SDK streams the answer over SSE (`/chat/ask`) → each turn is logged to the `query_log` table.
 
-**Key design choice**: Embeddings are fully local (HuggingFace, no API key). Only answer generation hits an external API (Gemini). This means ingestion works offline.
+**Key design choices carried over from v1:** embeddings are fully local (HuggingFace, no API key) so ingestion works without external calls beyond MinIO/Postgres/Qdrant; only answer generation hits Gemini.
 
-**Gemini integration** (`backend/rag.py`) uses raw `urllib` HTTP calls (not Google SDK). Temperature is 0.2, maxOutputTokens is 800, with a system instruction to answer only from supplied context.
+**What changed from v1:** ChromaDB → Qdrant (one collection per org); local disk uploads → MinIO; synchronous ingestion → Celery/Redis async; raw `urllib` Gemini calls → the official SDK with native streaming; no auth → JWT access/refresh tokens with Admin/Employee roles; Streamlit → FastAPI + Next.js.
 
 ## Key Data Structures
 
-All inter-module data flows through dataclasses:
-- `IngestResult` — per-file ingestion outcome (success/skip/failure + chunk count)
-- `RetrievedDocument` — ChromaDB chunk + similarity score (0.0–1.0)
-- `SourceCitation` — filename, page number (1-indexed), excerpt, score
-- `RAGAnswer` — answer text + list of `SourceCitation`
+- `app/db/models.py` — SQLAlchemy ORM: `Organization`, `User`, `Document`, `QueryLog`. Every table keys to `org_id`; Phase 1 runs a single seeded organization (`app/db/seed.py`), full row-level multi-tenancy is Phase 2.
+- `app/rag/context.py::SourceCitation` — filename, page number (1-indexed; Qdrant metadata stores it 0-indexed), excerpt, score.
+- `app/rag/rag.py::RAGAnswer` — non-streaming answer + citations, used by `/chat/ask-sync` and tests. The primary path (`/chat/ask`) streams tokens via `stream_answer_tokens()` instead.
+- `app/schemas/*.py` — Pydantic request/response models for the API layer (kept separate from ORM models).
 
-Chunk metadata stored in ChromaDB: `source` (filename), `source_path` (full path), `page` (zero-indexed; display adds +1).
+## Auth & Multi-Tenancy Notes
 
-## Session & Caching
-
-- `st.session_state` holds conversation history as `[{"role": "user"|"assistant", "content": str, "sources": [...]}]`
-- `@st.cache_resource` caches the vectorstore/embedding client across rerenders; cache is explicitly cleared after successful ingestion via `get_cached_vectorstore.clear()`
-
-## Duplicate Detection
-
-Ingestion checks at two levels before processing: filesystem existence in `data/uploads/` and ChromaDB query for existing chunks with the same source filename. Both checks must pass to skip re-ingestion.
+Every authenticated request carries `org_id` and `role` inside the JWT (`app/core/security.py`), decoded by `app/deps.py::get_current_user`. Handlers read `org_id` from there — **never** from request parameters — so a user cannot access another organization's data by editing an id in the request (see architecture review §6 IDOR note). This matters most in `app/rag/vectorstore.py`, where the org id selects the Qdrant collection name server-side.
 
 ## Error Handling Pattern
 
-Each module defines its own exception class (`PDFLoadError`, `EmbeddingError`, `VectorStoreError`, `RetrievalError`, `AnswerGenerationError`). Ingestion wraps all exceptions into `IngestResult` dataclass so the UI can display per-file status without crashing. Gemini errors print full details to console (visible in server logs).
+Each module still defines its own exception class (`PDFLoadError`, `EmbeddingError`, `VectorStoreError`, `RetrievalError`, `AnswerGenerationError`, `StorageError`). FastAPI routers catch these and translate to HTTP errors; the Celery task (`app/workers/tasks.py`) catches them and writes to `Document.error_message` / sets status `failed` instead of crashing the worker. Logging is structured JSON via `app/core/logging.py` (replaces v1's `print()` statements).
 
 ## Path & Platform Notes
 
-`app.py` uses `PureWindowsPath` for filename extraction from upload paths (Windows compatibility). `utils.py` defines all path constants (`PROJECT_ROOT`, `DATA_DIR`, `UPLOADS_DIR`, `CHROMA_DIR`) — import from there rather than constructing paths inline.
+Backend runs as a Linux container in Docker (no more `PureWindowsPath` workarounds). All backend config comes from `app/core/config.py::Settings` (pydantic-settings, reads `backend/.env`) — import from there rather than reading `os.environ` directly. Frontend config is `NEXT_PUBLIC_API_URL` (see `frontend/.env.local.example`).
