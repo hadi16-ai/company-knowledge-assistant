@@ -45,14 +45,17 @@ function formatBytes(bytes: number): string {
 
 interface DocumentRowProps {
   document: DocumentRecord;
-  isAdmin: boolean;
+  /** Manager+: can upload/replace/reindex. */
+  canManage: boolean;
+  /** Company Admin+: can delete. Always true when `canManage` would need it disabled. */
+  canDelete: boolean;
   onView: (document: DocumentRecord) => void;
   onReplace: (document: DocumentRecord, file: File) => Promise<void>;
   onReindex: (document: DocumentRecord) => Promise<void>;
   onDelete: (document: DocumentRecord) => Promise<void>;
 }
 
-export function DocumentRow({ document, isAdmin, onView, onReplace, onReindex, onDelete }: DocumentRowProps) {
+export function DocumentRow({ document, canManage, canDelete, onView, onReplace, onReindex, onDelete }: DocumentRowProps) {
   const status = STATUS_CONFIG[document.status];
   const StatusIcon = status.icon;
   const replaceInputRef = useRef<HTMLInputElement>(null);
@@ -114,7 +117,7 @@ export function DocumentRow({ document, isAdmin, onView, onReplace, onReindex, o
         {status.label}
       </Badge>
 
-      {isAdmin && (
+      {canManage && (
         <DropdownMenu>
           <DropdownMenuTrigger
             disabled={isBusy}
@@ -132,10 +135,12 @@ export function DocumentRow({ document, isAdmin, onView, onReplace, onReindex, o
               <Upload className="h-4 w-4" />
               Replace file
             </DropdownMenuItem>
-            <DropdownMenuItem variant="destructive" onClick={() => setIsDeleteOpen(true)}>
-              <Trash2 className="h-4 w-4" />
-              Delete
-            </DropdownMenuItem>
+            {canDelete && (
+              <DropdownMenuItem variant="destructive" onClick={() => setIsDeleteOpen(true)}>
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       )}

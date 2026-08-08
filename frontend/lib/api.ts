@@ -1,3 +1,7 @@
+import type { UserRole } from "@/lib/roles";
+
+export type { UserRole };
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const API_PREFIX = "/api/v1";
 
@@ -11,8 +15,6 @@ export class ApiError extends Error {
   }
 }
 
-export type UserRole = "admin" | "employee";
-
 export interface AuthUser {
   id: string;
   org_id: string;
@@ -20,6 +22,7 @@ export interface AuthUser {
   email: string;
   full_name: string;
   role: UserRole;
+  expires_at: string | null;
 }
 
 export interface TokenResponse {
@@ -74,6 +77,45 @@ export interface QueryLogEntry {
   query: string;
   answer: string;
   created_at: string;
+}
+
+export interface OrgMember {
+  id: string;
+  email: string;
+  full_name: string;
+  role: UserRole;
+  is_active: boolean;
+  expires_at: string | null;
+  created_at: string;
+}
+
+export interface UpdateMemberRequest {
+  role?: UserRole;
+  is_active?: boolean;
+  expires_at?: string | null;
+}
+
+export interface Invitation {
+  id: string;
+  role: UserRole;
+  email_hint: string | null;
+  created_at: string;
+  expires_at: string;
+  used_at: string | null;
+}
+
+export interface CreateInvitationRequest {
+  role: UserRole;
+  email_hint?: string;
+  expires_in_hours?: number;
+}
+
+export interface InvitationCreated {
+  id: string;
+  role: UserRole;
+  email_hint: string | null;
+  expires_at: string;
+  token: string;
 }
 
 const ACCESS_TOKEN_KEY = "cka_access_token";
@@ -170,13 +212,29 @@ export async function apiJson<T>(path: string, options: RequestOptions = {}): Pr
   return response.json() as Promise<T>;
 }
 
+export interface RegisterParams {
+  email: string;
+  password: string;
+  fullName: string;
+  // Exactly one of these two must be set: create a new organization
+  // (becomes its Company Admin), or join an existing one via invite.
+  organizationName?: string;
+  inviteToken?: string;
+}
+
 export const authApi = {
-  register: (email: string, password: string, fullName: string) =>
+  register: ({ email, password, fullName, organizationName, inviteToken }: RegisterParams) =>
     apiJson<TokenResponse>("/auth/register", {
       method: "POST",
       authenticated: false,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password, full_name: fullName }),
+      body: JSON.stringify({
+        email,
+        password,
+        full_name: fullName,
+        organization_name: organizationName,
+        invite_token: inviteToken,
+      }),
     }),
   login: (email: string, password: string) =>
     apiJson<TokenResponse>("/auth/login", {
@@ -216,6 +274,32 @@ export const documentsApi = {
 
 export const chatApi = {
   getHistory: () => apiJson<QueryLogEntry[]>("/chat/history"),
+};
+
+export const usersApi = {
+  list: () => apiJson<OrgMember[]>("/users"),
+  update: (id: string, payload: UpdateMemberRequest) =>
+    apiJson<OrgMember>(`/users/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+};
+
+export const invitationsApi = {
+  list: () => apiJson<Invitation[]>("/invitations"),
+  create: (payload: CreateInvitationRequest) =>
+    apiJson<InvitationCreated>("/invitations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  revoke: async (id: string): Promise<void> => {
+    const response = await apiFetch(`/invitations/${id}`, { method: "DELETE" });
+    if (!response.ok) {
+      throw new ApiError(await parseErrorDetail(response), response.status);
+    }
+  },
 };
 
 export interface StreamedAnswerHandlers {

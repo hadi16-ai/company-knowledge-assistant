@@ -5,11 +5,11 @@ review §4, Phase 1 — Upload & Queue): validate, push to MinIO, enqueue a
 Celery job, and return 202 immediately. The expensive chunk/embed/store work
 happens in `app.workers.tasks.process_document_task`.
 
-Per the RBAC scoping in ARCHITECTURE_REVIEW.md §6 (applied here with the two
-roles Phase 1 already has — full 5-tier RBAC is Phase 3): uploading,
-replacing, re-indexing, and deleting documents are Admin-only actions.
-Listing, viewing, and downloading are available to any authenticated member
-of the organization.
+Per the RBAC scoping in ARCHITECTURE_REVIEW.md §6: uploading, replacing, and
+re-indexing require Manager or above (they add/refresh content but never
+shrink the corpus); deleting requires Company Admin or above (matches the
+matrix's stricter, separate "Delete documents" row). Listing, viewing, and
+downloading are available to any authenticated member of the organization.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db.models import Document, DocumentStatus
 from app.db.session import get_db
-from app.deps import CurrentUser, get_current_user, require_admin
+from app.deps import CurrentUser, get_current_user, require_company_admin, require_manager
 from app.rag.vectorstore import VectorStoreError, delete_document_chunks, get_qdrant_client
 from app.schemas.document import DocumentResponse, DocumentUploadAccepted, DocumentViewUrl
 from app.storage.s3 import (
@@ -74,10 +74,10 @@ def _delete_indexed_chunks(org_id: uuid.UUID, document_id: uuid.UUID) -> None:
 @router.post("", response_model=DocumentUploadAccepted, status_code=status.HTTP_202_ACCEPTED)
 async def upload_document(
     file: UploadFile,
-    current_user: CurrentUser = Depends(require_admin),
+    current_user: CurrentUser = Depends(require_manager),
     db: Session = Depends(get_db),
 ) -> DocumentUploadAccepted:
-    """Validate, store, and queue a PDF for asynchronous ingestion. Admin only."""
+    """Validate, store, and queue a PDF for asynchronous ingestion. Manager+ only."""
     file_bytes = await file.read()
     _validate_pdf_upload(file, file_bytes)
 
@@ -176,10 +176,10 @@ def get_document_view_url(
 @router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_document(
     document_id: uuid.UUID,
-    current_user: CurrentUser = Depends(require_admin),
+    current_user: CurrentUser = Depends(require_company_admin),
     db: Session = Depends(get_db),
 ) -> None:
-    """Delete a document and everything derived from it: indexed vectors, stored file, and registry row. Admin only."""
+    """Delete a document and everything derived from it: indexed vectors, stored file, and registry row. Company Admin+ only."""
     document = _get_org_document(db, document_id, current_user.org_id)
 
     _delete_indexed_chunks(current_user.org_id, document.id)
@@ -197,10 +197,10 @@ def delete_document(
 async def replace_document(
     document_id: uuid.UUID,
     file: UploadFile,
-    current_user: CurrentUser = Depends(require_admin),
+    current_user: CurrentUser = Depends(require_manager),
     db: Session = Depends(get_db),
 ) -> DocumentUploadAccepted:
-    """Replace a document's file in place and re-run ingestion. Admin only.
+    """Replace a document's file in place and re-run ingestion. Manager+ only.
 
     Overwrites storage and re-embeds under the same document id — this is a
     direct in-place replace, not version history (superseded-document
@@ -245,10 +245,10 @@ async def replace_document(
 @router.post("/{document_id}/reindex", response_model=DocumentUploadAccepted)
 def reindex_document(
     document_id: uuid.UUID,
-    current_user: CurrentUser = Depends(require_admin),
+    current_user: CurrentUser = Depends(require_manager),
     db: Session = Depends(get_db),
 ) -> DocumentUploadAccepted:
-    """Delete existing vectors and re-run ingestion for the current file. Admin only."""
+    """Delete existing vectors and re-run ingestion for the current file. Manager+ only."""
     document = _get_org_document(db, document_id, current_user.org_id)
 
     _delete_indexed_chunks(current_user.org_id, document.id)

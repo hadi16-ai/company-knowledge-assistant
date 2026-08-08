@@ -2,13 +2,13 @@
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { authApi, clearTokens, getAccessToken, storeTokens, type AuthUser } from "@/lib/api";
+import { authApi, clearTokens, getAccessToken, storeTokens, type AuthUser, type RegisterParams } from "@/lib/api";
 
 interface AuthContextValue {
   user: AuthUser | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, fullName: string) => Promise<void>;
+  register: (params: RegisterParams) => Promise<void>;
   logout: () => void;
 }
 
@@ -52,8 +52,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const register = useCallback(
-    async (email: string, password: string, fullName: string) => {
-      const tokens = await authApi.register(email, password, fullName);
+    async (params: RegisterParams) => {
+      const tokens = await authApi.register(params);
       storeTokens(tokens);
       await loadCurrentUser();
       router.push("/chat");

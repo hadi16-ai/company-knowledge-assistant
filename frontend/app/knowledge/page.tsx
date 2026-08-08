@@ -8,13 +8,16 @@ import { DocumentRow } from "@/components/knowledge/document-row";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/lib/auth-context";
+import { hasAtLeast } from "@/lib/roles";
 import { ApiError, documentsApi, type DocumentRecord } from "@/lib/api";
 
 const POLL_INTERVAL_MS = 4000;
 
 export default function KnowledgePage() {
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  // Upload/replace/reindex need Manager+; delete is stricter, Company Admin+ only.
+  const canManage = hasAtLeast(user?.role, "manager");
+  const canDelete = hasAtLeast(user?.role, "admin");
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDragging, setIsDragging] = useState(false);
@@ -116,7 +119,7 @@ export default function KnowledgePage() {
         </header>
 
         <div className="mx-auto w-full max-w-3xl space-y-6">
-          {isAdmin ? (
+          {canManage ? (
             <div
               role="button"
               tabIndex={0}
@@ -157,7 +160,7 @@ export default function KnowledgePage() {
           ) : (
             <div className="flex items-center gap-3 rounded-lg border border-dashed px-6 py-4 text-sm text-muted-foreground">
               <ShieldAlert className="h-4 w-4 shrink-0" />
-              Only admins can upload, replace, or delete documents. Ask an admin in your organization for changes.
+              Only managers and admins can upload or replace documents. Ask an admin in your organization for changes.
             </div>
           )}
 
@@ -178,7 +181,8 @@ export default function KnowledgePage() {
                   <DocumentRow
                     key={document.id}
                     document={document}
-                    isAdmin={isAdmin}
+                    canManage={canManage}
+                    canDelete={canDelete}
                     onView={handleView}
                     onReplace={handleReplace}
                     onReindex={handleReindex}

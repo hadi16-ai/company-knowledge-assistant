@@ -3,8 +3,9 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { BookOpenText, LogOut, MessageSquare, Settings, UploadCloud } from "lucide-react";
+import { BookOpenText, LogOut, MessageSquare, Settings, ShieldCheck, UploadCloud } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
+import { hasAtLeast, ROLE_LABELS } from "@/lib/roles";
 import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -23,6 +24,8 @@ const NAV_ITEMS = [
   { href: "/knowledge", label: "Knowledge base", icon: UploadCloud },
 ];
 
+const ADMIN_NAV_ITEM = { href: "/admin", label: "Admin", icon: ShieldCheck };
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, isLoading, logout } = useAuth();
   const pathname = usePathname();
@@ -40,6 +43,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
+  const navItems = hasAtLeast(user.role, "admin") ? [...NAV_ITEMS, ADMIN_NAV_ITEM] : NAV_ITEMS;
+
   return (
     <div className="flex flex-1">
       <aside className="hidden w-64 flex-col border-r bg-muted/20 p-4 md:flex">
@@ -50,7 +55,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <span className="text-sm font-semibold">Knowledge Assistant</span>
         </div>
         <nav className="flex flex-1 flex-col gap-1">
-          {NAV_ITEMS.map((item) => {
+          {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = pathname.startsWith(item.href);
             return (
@@ -76,8 +81,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
             <div className="flex flex-col items-start text-left">
               <span className="text-xs font-medium leading-none">{user.full_name}</span>
-              <Badge variant="secondary" className="mt-1 h-4 px-1 text-[10px] capitalize">
-                {user.role}
+              <Badge variant="secondary" className="mt-1 h-4 px-1 text-[10px]">
+                {ROLE_LABELS[user.role]}
               </Badge>
             </div>
           </DropdownMenuTrigger>

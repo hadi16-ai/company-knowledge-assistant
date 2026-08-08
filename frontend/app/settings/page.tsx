@@ -1,6 +1,6 @@
 "use client";
 
-import { LogOut, Mail, Shield, User as UserIcon } from "lucide-react";
+import { Clock, LogOut, Mail, Shield, User as UserIcon } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Separator } from "@/components/ui/separator";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useAuth } from "@/lib/auth-context";
+import { ROLE_LABELS } from "@/lib/roles";
 
 function InfoRow({ icon: Icon, label, value }: { icon: typeof UserIcon; label: string; value: string }) {
   return (
@@ -50,11 +51,18 @@ export default function SettingsPage() {
                   </div>
                   <div className="flex min-w-0 flex-col">
                     <span className="text-xs text-muted-foreground">Role</span>
-                    <Badge variant="secondary" className="mt-0.5 w-fit capitalize">
-                      {user.role}
+                    <Badge variant="secondary" className="mt-0.5 w-fit">
+                      {ROLE_LABELS[user.role]}
                     </Badge>
                   </div>
                 </div>
+                {user.expires_at && (
+                  <InfoRow
+                    icon={Clock}
+                    label="Access expires"
+                    value={new Date(user.expires_at).toLocaleString()}
+                  />
+                )}
               </CardContent>
             </Card>
 

@@ -53,15 +53,21 @@ def _create_token(
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
-def create_access_token(subject: uuid.UUID, org_id: uuid.UUID, role: str) -> str:
-    """Create a short-lived access token carrying user_id, org_id, and role."""
+def create_access_token(
+    subject: uuid.UUID, org_id: uuid.UUID, role: str, expires_delta: timedelta | None = None
+) -> str:
+    """Create a short-lived access token carrying user_id, org_id, and role.
+
+    `expires_delta` overrides the configured default TTL — used to clamp a
+    guest's token to their `expires_at` (see `app.core.rbac.guest_access_ttl`).
+    """
     settings = get_settings()
     return _create_token(
         subject,
         org_id,
         role,
         TokenType.ACCESS,
-        timedelta(minutes=settings.access_token_expire_minutes),
+        expires_delta if expires_delta is not None else timedelta(minutes=settings.access_token_expire_minutes),
     )
 
 
