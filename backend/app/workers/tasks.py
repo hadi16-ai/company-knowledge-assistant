@@ -69,6 +69,7 @@ def process_document_task(self, document_id: str) -> None:
 
         document.status = DocumentStatus.READY
         document.chunk_count = len(chunks)
+        document.page_count = len(pages)
         document.error_message = None
         db.commit()
         logger.info("Document %s processed successfully (%d chunks).", document_id, len(chunks))

@@ -126,5 +126,11 @@
   }
   html {
     @apply font-sans;
+    /* Restrained app-wide readability bump: Tailwind's rem-based scale (text-sm,
+       spacing, component sizing) was effectively using 14px as the default body
+       text size, which reads as cramped for a document-heavy, text-driven app.
+       Raising the root size scales every rem-based utility proportionally, so
+       hierarchy and spacing stay intact instead of just enlarging headings. */
+    font-size: 112.5%;
   }
 }

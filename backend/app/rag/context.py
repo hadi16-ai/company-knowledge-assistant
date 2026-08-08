@@ -17,6 +17,7 @@ class SourceCitation:
     page_number: int | None
     excerpt: str
     score: float
+    document_id: str | None = None
 
 
 def _page_number(metadata: dict) -> int | None:
@@ -49,7 +50,8 @@ def build_context(
         if remaining <= 0:
             break
         content = content[:remaining]
+        document_id = metadata.get("doc_id")
         context_parts.append(f"[Source {index}: {filename}{page_label}]\n{content}")
-        citations.append(SourceCitation(filename, page_number, content, match.score))
+        citations.append(SourceCitation(filename, page_number, content, match.score, document_id))
         used_characters += len(content)
     return "\n\n".join(context_parts), citations

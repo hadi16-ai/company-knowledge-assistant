@@ -34,6 +34,10 @@ class Settings(BaseSettings):
 
     # --- MinIO / S3 ---
     s3_endpoint_url: str = Field(alias="S3_ENDPOINT_URL")
+    # Presigned URLs are opened by the user's browser, which cannot resolve the
+    # internal Docker network hostname in s3_endpoint_url (e.g. "minio"). Falls
+    # back to s3_endpoint_url when unset, for native (non-Docker) local runs.
+    s3_public_endpoint_url: str | None = Field(default=None, alias="S3_PUBLIC_ENDPOINT_URL")
     s3_access_key: str = Field(alias="S3_ACCESS_KEY")
     s3_secret_key: str = Field(alias="S3_SECRET_KEY")
     s3_bucket_name: str = Field(default="company-documents", alias="S3_BUCKET_NAME")
@@ -52,11 +56,13 @@ class Settings(BaseSettings):
     gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
     gemini_model: str = Field(default="gemini-3-flash-preview", alias="GEMINI_MODEL")
     gemini_temperature: float = Field(default=0.2, alias="GEMINI_TEMPERATURE")
-    gemini_max_output_tokens: int = Field(default=800, alias="GEMINI_MAX_OUTPUT_TOKENS")
+    gemini_max_output_tokens: int = Field(default=2048, alias="GEMINI_MAX_OUTPUT_TOKENS")
 
     # --- Retrieval ---
     retrieval_top_k: int = Field(default=4, alias="RETRIEVAL_TOP_K")
     max_context_characters: int = Field(default=12_000, alias="MAX_CONTEXT_CHARACTERS")
+    reranker_model: str = Field(default="cross-encoder/ms-marco-MiniLM-L-6-v2", alias="RERANKER_MODEL")
+    conversation_memory_turns: int = Field(default=5, alias="CONVERSATION_MEMORY_TURNS")
 
     # --- Uploads ---
     max_upload_size_mb: int = Field(default=25, alias="MAX_UPLOAD_SIZE_MB")

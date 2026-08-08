@@ -15,6 +15,7 @@ class DocumentResponse(BaseModel):
     filename: str
     status: DocumentStatus
     chunk_count: int
+    page_count: int
     size_bytes: int
     error_message: str | None
     created_at: datetime
@@ -28,3 +29,10 @@ class DocumentUploadAccepted(BaseModel):
     filename: str
     status: DocumentStatus
     message: str
+
+
+class DocumentViewUrl(BaseModel):
+    url: str
+    filename: str
+    page_count: int
+    expires_in_seconds: int

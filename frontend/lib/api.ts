@@ -16,6 +16,7 @@ export type UserRole = "admin" | "employee";
 export interface AuthUser {
   id: string;
   org_id: string;
+  org_name: string;
   email: string;
   full_name: string;
   role: UserRole;
@@ -34,10 +35,25 @@ export interface DocumentRecord {
   filename: string;
   status: DocumentStatus;
   chunk_count: number;
+  page_count: number;
   size_bytes: number;
   error_message: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface DocumentViewUrl {
+  url: string;
+  filename: string;
+  page_count: number;
+  expires_in_seconds: number;
+}
+
+export interface DocumentUploadAccepted {
+  document_id: string;
+  filename: string;
+  status: DocumentStatus;
+  message: string;
 }
 
 export interface SourceCitation {
@@ -45,6 +61,19 @@ export interface SourceCitation {
   page_number: number | null;
   excerpt: string;
   score: number;
+  document_id: string | null;
+}
+
+export interface ConversationTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface QueryLogEntry {
+  id: string;
+  query: string;
+  answer: string;
+  created_at: string;
 }
 
 const ACCESS_TOKEN_KEY = "cka_access_token";
@@ -159,18 +188,34 @@ export const authApi = {
   me: () => apiJson<AuthUser>("/auth/me"),
 };
 
+async function uploadFile<T>(path: string, method: "POST" | "PUT", file: File): Promise<T> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await apiFetch(path, { method, body: formData });
+  if (!response.ok) {
+    throw new ApiError(await parseErrorDetail(response), response.status);
+  }
+  return response.json();
+}
+
 export const documentsApi = {
   list: () => apiJson<DocumentRecord[]>("/documents"),
   get: (id: string) => apiJson<DocumentRecord>(`/documents/${id}`),
-  upload: async (file: File): Promise<DocumentRecord> => {
-    const formData = new FormData();
-    formData.append("file", file);
-    const response = await apiFetch("/documents", { method: "POST", body: formData });
+  upload: (file: File) => uploadFile<DocumentUploadAccepted>("/documents", "POST", file),
+  replace: (id: string, file: File) => uploadFile<DocumentUploadAccepted>(`/documents/${id}`, "PUT", file),
+  reindex: (id: string) =>
+    apiJson<DocumentUploadAccepted>(`/documents/${id}/reindex`, { method: "POST" }),
+  delete: async (id: string): Promise<void> => {
+    const response = await apiFetch(`/documents/${id}`, { method: "DELETE" });
     if (!response.ok) {
       throw new ApiError(await parseErrorDetail(response), response.status);
     }
-    return response.json();
   },
+  getViewUrl: (id: string) => apiJson<DocumentViewUrl>(`/documents/${id}/view-url`),
+};
+
+export const chatApi = {
+  getHistory: () => apiJson<QueryLogEntry[]>("/chat/history"),
 };
 
 export interface StreamedAnswerHandlers {
@@ -181,11 +226,15 @@ export interface StreamedAnswerHandlers {
 }
 
 /** Streams a chat answer via Server-Sent Events, invoking the given handlers as events arrive. */
-export async function streamAsk(question: string, handlers: StreamedAnswerHandlers): Promise<void> {
+export async function streamAsk(
+  question: string,
+  history: ConversationTurn[],
+  handlers: StreamedAnswerHandlers
+): Promise<void> {
   const response = await apiFetch("/chat/ask", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({ question, history }),
   });
 
   if (!response.ok || !response.body) {

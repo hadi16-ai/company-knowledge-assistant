@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { AuthShell } from "@/components/layout/auth-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { ApiError } from "@/lib/api";
@@ -17,10 +18,17 @@ export default function RegisterPage() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const passwordsMismatch = confirmPassword.length > 0 && password !== confirmPassword;
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    if (password !== confirmPassword) {
+      toast.error("Passwords do not match.");
+      return;
+    }
     setIsSubmitting(true);
     try {
       await register(email, password, fullName);
@@ -59,9 +67,8 @@ export default function RegisterPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
-              <Input
+              <PasswordInput
                 id="password"
-                type="password"
                 autoComplete="new-password"
                 required
                 minLength={8}
@@ -70,7 +77,20 @@ export default function RegisterPage() {
               />
               <p className="text-xs text-muted-foreground">At least 8 characters.</p>
             </div>
-            <Button type="submit" className="w-full" disabled={isSubmitting}>
+            <div className="space-y-2">
+              <Label htmlFor="confirmPassword">Confirm password</Label>
+              <PasswordInput
+                id="confirmPassword"
+                autoComplete="new-password"
+                required
+                minLength={8}
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                aria-invalid={passwordsMismatch}
+              />
+              {passwordsMismatch && <p className="text-xs text-destructive">Passwords do not match.</p>}
+            </div>
+            <Button type="submit" className="w-full" disabled={isSubmitting || passwordsMismatch}>
               {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
               Create account
             </Button>

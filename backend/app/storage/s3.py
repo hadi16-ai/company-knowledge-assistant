@@ -25,11 +25,35 @@ class StorageError(Exception):
 
 @lru_cache
 def get_s3_client() -> BaseClient:
-    """Return a cached boto3 client configured for the MinIO/S3 endpoint."""
+    """Return a cached boto3 client configured for the MinIO/S3 endpoint (server-side use)."""
     settings = get_settings()
     return boto3.client(
         "s3",
         endpoint_url=settings.s3_endpoint_url,
+        aws_access_key_id=settings.s3_access_key,
+        aws_secret_access_key=settings.s3_secret_key,
+        region_name=settings.s3_region,
+        config=Config(signature_version="s3v4"),
+        use_ssl=settings.s3_use_ssl,
+    )
+
+
+@lru_cache
+def _get_presign_client() -> BaseClient:
+    """
+    Client used only to generate presigned URLs, pointed at the publicly reachable endpoint.
+
+    Server-to-MinIO traffic (upload/download/delete) uses the internal Docker
+    network hostname, but a presigned URL is opened directly by the user's
+    browser and SigV4 binds its signature to the host it was signed for — so
+    presigning with the internal client would produce a URL the browser can't
+    resolve, and presigning with a mismatched host would fail signature
+    verification even if it could.
+    """
+    settings = get_settings()
+    return boto3.client(
+        "s3",
+        endpoint_url=settings.s3_public_endpoint_url or settings.s3_endpoint_url,
         aws_access_key_id=settings.s3_access_key,
         aws_secret_access_key=settings.s3_secret_key,
         region_name=settings.s3_region,
@@ -83,9 +107,9 @@ def download_bytes(object_key: str) -> bytes:
 
 
 def generate_presigned_url(object_key: str, expires_in: int = PRESIGNED_URL_EXPIRY_SECONDS) -> str:
-    """Generate a time-limited download URL for an object."""
+    """Generate a time-limited download URL for an object, reachable from the browser."""
     settings = get_settings()
-    client = get_s3_client()
+    client = _get_presign_client()
     try:
         return client.generate_presigned_url(
             "get_object",
@@ -94,3 +118,13 @@ def generate_presigned_url(object_key: str, expires_in: int = PRESIGNED_URL_EXPI
         )
     except (ClientError, BotoCoreError) as exc:
         raise StorageError(f"Failed to generate presigned URL for '{object_key}': {exc}") from exc
+
+
+def delete_bytes(object_key: str) -> None:
+    """Delete an object from the configured bucket. No-op if it doesn't exist."""
+    settings = get_settings()
+    client = get_s3_client()
+    try:
+        client.delete_object(Bucket=settings.s3_bucket_name, Key=object_key)
+    except (ClientError, BotoCoreError) as exc:
+        raise StorageError(f"Failed to delete '{object_key}' from object storage: {exc}") from exc

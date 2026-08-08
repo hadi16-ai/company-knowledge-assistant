@@ -33,6 +33,7 @@ class TokenResponse(BaseModel):
 class UserResponse(BaseModel):
     id: uuid.UUID
     org_id: uuid.UUID
+    org_name: str
     email: EmailStr
     full_name: str
     role: UserRole

@@ -8,7 +8,10 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# torch is a transitive dep of sentence-transformers; install the CPU-only build
+# first so pip doesn't pull the ~4.5GB CUDA/nvidia-* wheels (this app is CPU-only).
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 

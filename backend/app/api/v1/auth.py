@@ -98,4 +98,11 @@ def me(
     user: User = Depends(get_current_db_user),
 ) -> UserResponse:
     """Return the authenticated caller's profile."""
-    return UserResponse.model_validate(user)
+    return UserResponse(
+        id=user.id,
+        org_id=user.org_id,
+        org_name=user.organization.name,
+        email=user.email,
+        full_name=user.full_name,
+        role=user.role,
+    )

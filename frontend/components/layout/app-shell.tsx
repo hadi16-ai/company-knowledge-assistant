@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { BookOpenText, LogOut, MessageSquare, UploadCloud } from "lucide-react";
+import { BookOpenText, LogOut, MessageSquare, Settings, UploadCloud } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +11,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
@@ -79,7 +82,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
-            <DropdownMenuItem onClick={logout}>
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="font-normal">
+                <div className="flex flex-col">
+                  <span className="text-sm font-medium">{user.full_name}</span>
+                  <span className="text-xs font-normal text-muted-foreground">{user.email}</span>
+                </div>
+              </DropdownMenuLabel>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => router.push("/settings")}>
+              <Settings className="h-4 w-4" />
+              Profile &amp; settings
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={logout} variant="destructive">
               <LogOut className="h-4 w-4" />
               Sign out
             </DropdownMenuItem>

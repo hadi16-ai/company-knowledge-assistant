@@ -23,11 +23,20 @@ from app.rag.retrieval import RetrievalError, retrieve_documents
 logger = logging.getLogger(__name__)
 
 SYSTEM_INSTRUCTIONS = (
-    "You are the Company Knowledge Assistant. "
-    "Answer only from the supplied company-document context. "
-    "If the context does not answer the question, say that clearly. "
-    "Do not invent facts or cite sources not provided. "
-    "Keep the answer concise and use source labels such as [Source 1] when helpful."
+    "You are the Company Knowledge Assistant, an enterprise AI that helps employees "
+    "understand company documents.\n\n"
+    "Ground every answer strictly in the supplied company-document context — never "
+    "invent facts, figures, policies, or sources that aren't present in it. If the "
+    "context does not answer the question, say so plainly instead of guessing.\n\n"
+    "When the context gives you enough to work with, answer thoroughly rather than "
+    "tersely:\n"
+    "- Use short Markdown headings (##) to organize multi-part answers.\n"
+    "- Write in complete paragraphs that explain the 'why', not clipped one-liners.\n"
+    "- Use bullet or numbered lists for steps, criteria, or enumerated items.\n"
+    "- Reference sources inline with labels like [Source 1] so claims stay traceable.\n\n"
+    "Match the depth of the answer to the depth of the question and what the context "
+    "actually supports — a simple factual question still deserves a direct, short "
+    "answer rather than padding."
 )
 
 
@@ -43,11 +52,48 @@ class RAGAnswer:
     sources: list[SourceCitation]
 
 
-def retrieve_context(question: str, org_id: uuid.UUID) -> tuple[str, list[SourceCitation]]:
+@dataclass(frozen=True)
+class ConversationTurn:
+    """One prior turn in the ongoing chat, used to give the assistant short-term memory."""
+
+    role: str  # "user" | "assistant"
+    content: str
+
+
+def _recent_history(history: list[ConversationTurn] | None) -> list[ConversationTurn]:
+    """Clamp history to the configured memory window regardless of what the caller sent."""
+    if not history:
+        return []
+    max_messages = get_settings().conversation_memory_turns * 2
+    return history[-max_messages:]
+
+
+def _build_retrieval_query(question: str, recent_history: list[ConversationTurn]) -> str:
+    """
+    Fold the most recent user turns into the retrieval query.
+
+    Without this, a follow-up like "what does that section say?" has no
+    referent for the search — it would retrieve against the pronoun alone.
+    Only user turns are folded in; assistant turns are conversational
+    filler for retrieval purposes, not search-worthy content.
+    """
+    recent_user_turns = [turn.content for turn in recent_history if turn.role == "user"][-2:]
+    if not recent_user_turns:
+        return question
+    return " ".join([*recent_user_turns, question])
+
+
+def retrieve_context(
+    question: str,
+    org_id: uuid.UUID,
+    history: list[ConversationTurn] | None = None,
+) -> tuple[str, list[SourceCitation]]:
     """Retrieve relevant chunks for an org and build bounded, citable context."""
     settings = get_settings()
+    recent_history = _recent_history(history)
+    retrieval_query = _build_retrieval_query(question, recent_history)
     try:
-        matches = retrieve_documents(question, org_id, k=settings.retrieval_top_k)
+        matches = retrieve_documents(retrieval_query, org_id, k=settings.retrieval_top_k)
     except RetrievalError as exc:
         raise AnswerGenerationError(str(exc)) from exc
 
@@ -73,8 +119,15 @@ def _get_client() -> genai.Client:
     return genai.Client(api_key=settings.gemini_api_key)
 
 
-def _build_prompt(question: str, context: str) -> str:
-    return f"Question:\n{question.strip()}\n\nCompany-document context:\n{context}"
+def _build_prompt(question: str, context: str, history: list[ConversationTurn] | None = None) -> str:
+    recent_history = _recent_history(history)
+    parts: list[str] = []
+    if recent_history:
+        transcript = "\n".join(f"{turn.role.capitalize()}: {turn.content.strip()}" for turn in recent_history)
+        parts.append(f"Conversation so far (most recent last):\n{transcript}")
+    parts.append(f"Question:\n{question.strip()}")
+    parts.append(f"Company-document context:\n{context}")
+    return "\n\n".join(parts)
 
 
 def _generation_config() -> types.GenerateContentConfig:
@@ -86,16 +139,20 @@ def _generation_config() -> types.GenerateContentConfig:
     )
 
 
-def answer_question(question: str, org_id: uuid.UUID) -> RAGAnswer:
+def answer_question(
+    question: str,
+    org_id: uuid.UUID,
+    history: list[ConversationTurn] | None = None,
+) -> RAGAnswer:
     """Retrieve relevant chunks and generate a complete (non-streaming) grounded answer."""
-    context, sources = retrieve_context(question, org_id)
+    context, sources = retrieve_context(question, org_id, history)
     settings = get_settings()
     client = _get_client()
 
     try:
         response = client.models.generate_content(
             model=settings.gemini_model,
-            contents=_build_prompt(question, context),
+            contents=_build_prompt(question, context, history),
             config=_generation_config(),
         )
         answer_text = (response.text or "").strip()
@@ -109,14 +166,18 @@ def answer_question(question: str, org_id: uuid.UUID) -> RAGAnswer:
     return RAGAnswer(text=answer_text, sources=sources)
 
 
-def stream_answer_tokens(question: str, context: str) -> Iterator[str]:
+def stream_answer_tokens(
+    question: str,
+    context: str,
+    history: list[ConversationTurn] | None = None,
+) -> Iterator[str]:
     """Yield answer text incrementally as Gemini streams its response."""
     settings = get_settings()
     client = _get_client()
     try:
         for chunk in client.models.generate_content_stream(
             model=settings.gemini_model,
-            contents=_build_prompt(question, context),
+            contents=_build_prompt(question, context, history),
             config=_generation_config(),
         ):
             if chunk.text:

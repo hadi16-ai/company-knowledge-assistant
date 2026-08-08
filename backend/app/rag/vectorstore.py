@@ -27,7 +27,8 @@ class VectorStoreError(Exception):
     """Raised when vector store operations fail."""
 
 
-def _collection_name(org_id: uuid.UUID) -> str:
+def collection_name_for_org(org_id: uuid.UUID) -> str:
+    """Return the Qdrant collection name for an organization (never exposed to the frontend)."""
     prefix = get_settings().qdrant_collection_prefix
     return f"{prefix}_{org_id}"
 
@@ -40,7 +41,7 @@ def get_qdrant_client() -> QdrantClient:
 
 def ensure_collection(client: QdrantClient, org_id: uuid.UUID) -> str:
     """Create the organization's Qdrant collection if it does not exist yet."""
-    collection_name = _collection_name(org_id)
+    collection_name = collection_name_for_org(org_id)
     try:
         client.get_collection(collection_name)
     except (UnexpectedResponse, ValueError):
@@ -75,7 +76,7 @@ def get_vectorstore(embeddings: Embeddings, org_id: uuid.UUID) -> QdrantVectorSt
 
 def is_document_indexed(client: QdrantClient, org_id: uuid.UUID, source_filename: str) -> bool:
     """Check whether chunks from a given source file are already indexed."""
-    collection_name = _collection_name(org_id)
+    collection_name = collection_name_for_org(org_id)
     try:
         result, _ = client.scroll(
             collection_name=collection_name,
@@ -123,7 +124,63 @@ def add_documents_to_store(
 def get_indexed_document_count(client: QdrantClient, org_id: uuid.UUID) -> int:
     """Return the total number of indexed chunks in the organization's collection."""
     try:
-        info = client.get_collection(_collection_name(org_id))
+        info = client.get_collection(collection_name_for_org(org_id))
         return info.points_count or 0
     except (UnexpectedResponse, ValueError):
         return 0
+
+
+def scroll_all_documents(client: QdrantClient, org_id: uuid.UUID, limit: int = 10_000) -> list[tuple[str, Document]]:
+    """Return every chunk in the organization's collection as (point_id, Document) pairs.
+
+    Used to build the in-memory BM25 index for hybrid search — Qdrant's
+    open-source tier has no native BM25/full-text ranking, so keyword search
+    runs client-side over each org's chunk corpus. This scales comfortably to
+    the tens-of-thousands-of-chunks range; a much larger single-org corpus
+    would warrant a real sparse-vector or external search index instead.
+    """
+    collection_name = collection_name_for_org(org_id)
+    results: list[tuple[str, Document]] = []
+    next_offset = None
+    try:
+        while True:
+            batch_limit = min(limit - len(results), 1000) if limit else 1000
+            if batch_limit <= 0:
+                break
+            points, next_offset = client.scroll(
+                collection_name=collection_name,
+                limit=batch_limit,
+                offset=next_offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            for point in points:
+                payload = point.payload or {}
+                content = payload.get("page_content", "")
+                metadata = payload.get("metadata", {})
+                results.append((str(point.id), Document(page_content=content, metadata=metadata)))
+            if next_offset is None:
+                break
+    except (UnexpectedResponse, ValueError):
+        return []
+    return results
+
+
+def delete_document_chunks(client: QdrantClient, org_id: uuid.UUID, doc_id: uuid.UUID) -> None:
+    """Delete every chunk belonging to one document from the organization's collection.
+
+    Used before re-indexing or replacing a document, and when deleting a
+    document outright, so stale vectors never linger and get retrieved
+    alongside (or instead of) the current content.
+    """
+    try:
+        client.delete(
+            collection_name=collection_name_for_org(org_id),
+            points_selector=qmodels.FilterSelector(
+                filter=qmodels.Filter(
+                    must=[qmodels.FieldCondition(key="metadata.doc_id", match=qmodels.MatchValue(value=str(doc_id)))]
+                )
+            ),
+        )
+    except (UnexpectedResponse, ValueError) as exc:
+        raise VectorStoreError(f"Failed to delete existing chunks for document {doc_id}: {exc}") from exc

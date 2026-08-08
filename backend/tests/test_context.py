@@ -8,9 +8,18 @@ from app.rag.context import build_context
 from app.rag.retrieval import RetrievedDocument
 
 
-def _match(content: str, source: str = "handbook.pdf", page: int = 0, score: float = 0.8) -> RetrievedDocument:
+def _match(
+    content: str,
+    source: str = "handbook.pdf",
+    page: int = 0,
+    score: float = 0.8,
+    doc_id: str | None = None,
+) -> RetrievedDocument:
+    metadata = {"source": source, "page": page}
+    if doc_id is not None:
+        metadata["doc_id"] = doc_id
     return RetrievedDocument(
-        document=Document(page_content=content, metadata={"source": source, "page": page}),
+        document=Document(page_content=content, metadata=metadata),
         score=score,
     )
 
@@ -51,3 +60,19 @@ def test_build_context_empty_matches_returns_empty():
     context, citations = build_context([])
     assert context == ""
     assert citations == []
+
+
+def test_build_context_carries_document_id_for_clickable_citations():
+    matches = [_match("Annual leave is 20 days.", doc_id="11111111-1111-1111-1111-111111111111")]
+
+    _, citations = build_context(matches)
+
+    assert citations[0].document_id == "11111111-1111-1111-1111-111111111111"
+
+
+def test_build_context_document_id_defaults_to_none_when_absent():
+    matches = [_match("Annual leave is 20 days.")]
+
+    _, citations = build_context(matches)
+
+    assert citations[0].document_id is None
