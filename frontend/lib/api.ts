@@ -67,12 +67,14 @@ export interface SourceCitation {
   document_id: string | null;
 }
 
-export interface ConversationTurn {
-  role: "user" | "assistant";
-  content: string;
+export interface Conversation {
+  id: string;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
-export interface QueryLogEntry {
+export interface ConversationMessage {
   id: string;
   query: string;
   answer: string;
@@ -244,6 +246,12 @@ export const authApi = {
       body: JSON.stringify({ email, password }),
     }),
   me: () => apiJson<AuthUser>("/auth/me"),
+  createWorkspace: (organizationName: string) =>
+    apiJson<TokenResponse>("/auth/create-workspace", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ organization_name: organizationName }),
+    }),
 };
 
 async function uploadFile<T>(path: string, method: "POST" | "PUT", file: File): Promise<T> {
@@ -272,8 +280,16 @@ export const documentsApi = {
   getViewUrl: (id: string) => apiJson<DocumentViewUrl>(`/documents/${id}/view-url`),
 };
 
-export const chatApi = {
-  getHistory: () => apiJson<QueryLogEntry[]>("/chat/history"),
+export const conversationsApi = {
+  list: () => apiJson<Conversation[]>("/conversations"),
+  create: () => apiJson<Conversation>("/conversations", { method: "POST" }),
+  messages: (id: string) => apiJson<ConversationMessage[]>(`/conversations/${id}/messages`),
+  remove: async (id: string): Promise<void> => {
+    const response = await apiFetch(`/conversations/${id}`, { method: "DELETE" });
+    if (!response.ok) {
+      throw new ApiError(await parseErrorDetail(response), response.status);
+    }
+  },
 };
 
 export const usersApi = {
@@ -312,13 +328,13 @@ export interface StreamedAnswerHandlers {
 /** Streams a chat answer via Server-Sent Events, invoking the given handlers as events arrive. */
 export async function streamAsk(
   question: string,
-  history: ConversationTurn[],
+  conversationId: string,
   handlers: StreamedAnswerHandlers
 ): Promise<void> {
   const response = await apiFetch("/chat/ask", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question, history }),
+    body: JSON.stringify({ question, conversation_id: conversationId }),
   });
 
   if (!response.ok || !response.body) {

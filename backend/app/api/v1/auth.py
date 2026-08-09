@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.rbac import guest_access_ttl, is_guest_access_expired
+from app.core.rbac import can_bootstrap_own_workspace, guest_access_ttl, is_guest_access_expired
 from app.core.security import (
     InvalidTokenError,
     TokenType,
@@ -24,7 +24,14 @@ from app.core.security import (
 from app.db.models import Invitation, Organization, User, UserRole
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_db_user, get_current_user
-from app.schemas.auth import LoginRequest, RefreshRequest, RegisterRequest, TokenResponse, UserResponse
+from app.schemas.auth import (
+    CreateWorkspaceRequest,
+    LoginRequest,
+    RefreshRequest,
+    RegisterRequest,
+    TokenResponse,
+    UserResponse,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -51,10 +58,15 @@ def _hash_invite_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def _create_org_and_admin(db: Session, payload: RegisterRequest) -> User:
-    org = Organization(id=uuid.uuid4(), name=payload.organization_name, slug=_unique_org_slug(db, payload.organization_name))
+def _create_organization(db: Session, name: str) -> Organization:
+    org = Organization(id=uuid.uuid4(), name=name, slug=_unique_org_slug(db, name))
     db.add(org)
-    db.flush()  # populate org.id for the FK below without a full commit yet
+    db.flush()  # populate org.id for FKs below without a full commit yet
+    return org
+
+
+def _create_org_and_admin(db: Session, payload: RegisterRequest) -> User:
+    org = _create_organization(db, payload.organization_name)
 
     user = User(
         id=uuid.uuid4(),
@@ -127,6 +139,42 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> TokenRe
     db.refresh(user)
 
     return _issue_tokens(user)
+
+
+@router.post("/create-workspace", response_model=TokenResponse)
+def create_workspace(
+    payload: CreateWorkspaceRequest,
+    current_user: User = Depends(get_current_db_user),
+    db: Session = Depends(get_db),
+) -> TokenResponse:
+    """Let an existing account found its own new organization and become its Company Admin.
+
+    Covers the "stuck in someone else's default/dev org" case (there's no
+    way for an *existing* account to reach the register page's create-org
+    flow) without weakening RBAC: this never promotes the caller within
+    their current org, it moves them out of it entirely into a brand-new
+    org nobody else belongs to yet. See app.core.rbac.can_bootstrap_own_workspace
+    for why that's always safe regardless of the current org's size — and
+    why it's blocked for a Company Admin/Super Admin of a real multi-member
+    org (that would abandon it without an admin).
+    """
+    member_count = db.query(User).filter(User.org_id == current_user.org_id).count()
+    if not can_bootstrap_own_workspace(current_user.role, member_count):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "You're the admin of a workspace with other members — reassign another admin "
+                "there first before creating a new workspace."
+            ),
+        )
+
+    org = _create_organization(db, payload.organization_name)
+    current_user.org_id = org.id
+    current_user.role = UserRole.COMPANY_ADMIN
+    db.commit()
+    db.refresh(current_user)
+
+    return _issue_tokens(current_user)
 
 
 @router.post("/login", response_model=TokenResponse)

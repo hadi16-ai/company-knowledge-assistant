@@ -1,12 +1,25 @@
 "use client";
 
-import { Clock, LogOut, Mail, Shield, User as UserIcon } from "lucide-react";
+import { useState } from "react";
+import { Clock, Loader2, LogOut, Mail, Shield, User as UserIcon } from "lucide-react";
+import { toast } from "sonner";
 import { AppShell } from "@/components/layout/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { ROLE_LABELS } from "@/lib/roles";
 
@@ -25,7 +38,22 @@ function InfoRow({ icon: Icon, label, value }: { icon: typeof UserIcon; label: s
 }
 
 export default function SettingsPage() {
-  const { user, logout } = useAuth();
+  const { user, logout, createWorkspace } = useAuth();
+  const [isWorkspaceDialogOpen, setIsWorkspaceDialogOpen] = useState(false);
+  const [workspaceName, setWorkspaceName] = useState("");
+  const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false);
+
+  async function handleCreateWorkspace() {
+    const name = workspaceName.trim();
+    if (!name) return;
+    setIsCreatingWorkspace(true);
+    try {
+      await createWorkspace(name);
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : "Failed to create workspace.");
+      setIsCreatingWorkspace(false);
+    }
+  }
 
   return (
     <AppShell>
@@ -74,6 +102,11 @@ export default function SettingsPage() {
               <CardContent>
                 <InfoRow icon={UserIcon} label="Organization" value={user.org_name} />
               </CardContent>
+              <CardFooter>
+                <Button variant="outline" size="sm" onClick={() => setIsWorkspaceDialogOpen(true)}>
+                  Create your own workspace
+                </Button>
+              </CardFooter>
             </Card>
 
             <Card>
@@ -104,6 +137,49 @@ export default function SettingsPage() {
           </div>
         </div>
       )}
+
+      <Dialog
+        open={isWorkspaceDialogOpen}
+        onOpenChange={(open) => {
+          if (isCreatingWorkspace) return;
+          setIsWorkspaceDialogOpen(open);
+          if (!open) setWorkspaceName("");
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create your own workspace</DialogTitle>
+            <DialogDescription>
+              This moves your account out of &quot;{user?.org_name}&quot; into a brand-new workspace where
+              you&apos;re the Company Admin. Your current workspace and its other members are unaffected —
+              you just won&apos;t have access to their documents or conversations anymore.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="workspaceName">Workspace name</Label>
+            <Input
+              id="workspaceName"
+              value={workspaceName}
+              onChange={(event) => setWorkspaceName(event.target.value)}
+              placeholder="Acme Inc."
+              disabled={isCreatingWorkspace}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsWorkspaceDialogOpen(false)}
+              disabled={isCreatingWorkspace}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleCreateWorkspace} disabled={isCreatingWorkspace || !workspaceName.trim()}>
+              {isCreatingWorkspace && <Loader2 className="h-4 w-4 animate-spin" />}
+              Create workspace
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }

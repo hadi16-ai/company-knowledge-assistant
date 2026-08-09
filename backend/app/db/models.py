@@ -110,12 +110,39 @@ class Document(Base):
     organization: Mapped["Organization"] = relationship(back_populates="documents")
 
 
+class Conversation(Base):
+    """A chat thread. Each conversation belongs to exactly one user in exactly one org.
+
+    ``title`` starts NULL and is set from the first question once it's
+    asked (see ``app.api.v1.chat``) — a conversation with no messages yet is
+    never persisted at all (the frontend only calls ``POST /conversations``
+    on first send), so a NULL title always means "not yet titled", not
+    "empty".
+    """
+
+    __tablename__ = "conversations"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class QueryLog(Base):
     __tablename__ = "query_log"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     org_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), nullable=False)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    # Nullable: rows predating the conversation concept were backfilled into a
+    # synthetic "legacy" conversation per user by migration 0004 rather than
+    # left dangling, but the column itself stays nullable so that backfill
+    # isn't a hard schema requirement for older data.
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("conversations.id"), nullable=True, index=True
+    )
     query: Mapped[str] = mapped_column(Text, nullable=False)
     answer: Mapped[str] = mapped_column(Text, nullable=False)
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

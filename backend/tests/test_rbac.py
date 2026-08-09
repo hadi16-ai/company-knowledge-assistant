@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from app.core.rbac import can_assign_role, guest_access_ttl, has_at_least, is_guest_access_expired
+from app.core.rbac import (
+    can_assign_role,
+    can_bootstrap_own_workspace,
+    guest_access_ttl,
+    has_at_least,
+    is_guest_access_expired,
+)
 from app.db.models import UserRole
 
 ALL_ROLES = [UserRole.SUPER_ADMIN, UserRole.COMPANY_ADMIN, UserRole.MANAGER, UserRole.EMPLOYEE, UserRole.GUEST]
@@ -97,3 +103,24 @@ def test_is_guest_access_expired_always_false_for_non_guests():
     past = now - timedelta(days=1)
     for role in (UserRole.SUPER_ADMIN, UserRole.COMPANY_ADMIN, UserRole.MANAGER, UserRole.EMPLOYEE):
         assert not is_guest_access_expired(role, past, now)
+
+
+def test_can_bootstrap_own_workspace_allowed_when_sole_member():
+    # Nothing is stranded by leaving an org you're the only member of, regardless of rank.
+    for role in ALL_ROLES:
+        assert can_bootstrap_own_workspace(role, org_member_count=1)
+
+
+def test_can_bootstrap_own_workspace_allowed_for_non_admin_in_a_real_org():
+    # The actual target scenario: an Employee/Manager/Guest stuck in someone else's
+    # multi-member org can always leave to found their own — nobody they'd be
+    # stranding, since they hold no admin responsibility there.
+    for role in (UserRole.EMPLOYEE, UserRole.MANAGER, UserRole.GUEST):
+        assert can_bootstrap_own_workspace(role, org_member_count=5)
+
+
+def test_can_bootstrap_own_workspace_blocked_for_admin_of_a_real_org():
+    # A Company Admin/Super Admin of a multi-member org would abandon it
+    # without an admin — blocked; they should reassign another admin first.
+    assert not can_bootstrap_own_workspace(UserRole.COMPANY_ADMIN, org_member_count=2)
+    assert not can_bootstrap_own_workspace(UserRole.SUPER_ADMIN, org_member_count=10)

@@ -9,6 +9,7 @@ interface AuthContextValue {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (params: RegisterParams) => Promise<void>;
+  createWorkspace: (organizationName: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -61,6 +62,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [loadCurrentUser, router]
   );
 
+  const createWorkspace = useCallback(
+    async (organizationName: string) => {
+      const tokens = await authApi.createWorkspace(organizationName);
+      storeTokens(tokens);
+      await loadCurrentUser();
+      router.push("/chat");
+    },
+    [loadCurrentUser, router]
+  );
+
   const logout = useCallback(() => {
     clearTokens();
     setUser(null);
@@ -68,7 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [router]);
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, isLoading, login, register, createWorkspace, logout }}>
       {children}
     </AuthContext.Provider>
   );

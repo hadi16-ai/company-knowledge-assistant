@@ -62,3 +62,17 @@ def is_guest_access_expired(role: UserRole, expires_at: datetime | None, now: da
     if role != UserRole.GUEST or expires_at is None:
         return False
     return now >= expires_at
+
+
+def can_bootstrap_own_workspace(role: UserRole, org_member_count: int) -> bool:
+    """True if this account may found a brand-new org and move itself there as Company Admin.
+
+    This is not self-promotion within the current org (never allowed) — it's
+    detaching from the current org entirely, which is only unsafe when the
+    account is the thing holding a real, multi-member org together. An
+    account below Company Admin can always leave (there's nothing for them
+    to strand); a Company Admin/Super Admin can only leave a org they're the
+    sole member of — otherwise they'd abandon their org without an admin,
+    and should reassign another admin via the existing admin panel first.
+    """
+    return org_member_count <= 1 or not has_at_least(role, UserRole.COMPANY_ADMIN)

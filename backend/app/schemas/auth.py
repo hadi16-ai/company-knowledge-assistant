@@ -27,6 +27,12 @@ class RegisterRequest(BaseModel):
         return self
 
 
+class CreateWorkspaceRequest(BaseModel):
+    """Lets an already-authenticated account found its own new organization. See app.core.rbac.can_bootstrap_own_workspace."""
+
+    organization_name: str = Field(min_length=1, max_length=255)
+
+
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
