@@ -107,6 +107,7 @@ export function DocumentRow({ document, canManage, canDelete, onView, onReplace,
             {formatBytes(document.size_bytes)}
             {document.status === "ready" &&
               ` · ${document.chunk_count} chunks${document.page_count ? ` · ${document.page_count} pages` : ""}`}
+            {document.status === "ready" && document.error_message && ` · ${document.error_message}`}
             {document.status === "failed" && document.error_message && ` · ${document.error_message}`}
           </p>
         </div>

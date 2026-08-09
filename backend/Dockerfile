@@ -2,9 +2,10 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# System deps for psycopg2 and PDF/embedding libraries.
+# System deps for psycopg2, PDF/embedding libraries, and OCR (tesseract-ocr
+# pulls in tesseract-ocr-eng on Debian, so English recognition works out of the box).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential libpq-dev curl \
+    && apt-get install -y --no-install-recommends build-essential libpq-dev curl tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

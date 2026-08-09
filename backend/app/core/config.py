@@ -64,6 +64,15 @@ class Settings(BaseSettings):
     reranker_model: str = Field(default="cross-encoder/ms-marco-MiniLM-L-6-v2", alias="RERANKER_MODEL")
     conversation_memory_turns: int = Field(default=5, alias="CONVERSATION_MEMORY_TURNS")
 
+    # --- OCR ---
+    # Escape hatch: if Tesseract is ever unavailable/misbehaving in an
+    # environment, set this false to keep text-layer PDF ingestion working
+    # while scanned pages are simply skipped instead of crashing ingestion.
+    ocr_enabled: bool = Field(default=True, alias="OCR_ENABLED")
+    # Selects an engine from app.rag.ocr's provider registry — the swap point
+    # for a future cloud OCR backend (Textract, Google Vision, ...).
+    ocr_provider: str = Field(default="tesseract", alias="OCR_PROVIDER")
+
     # --- Uploads ---
     max_upload_size_mb: int = Field(default=25, alias="MAX_UPLOAD_SIZE_MB")
 

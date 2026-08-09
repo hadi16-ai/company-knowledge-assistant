@@ -49,14 +49,20 @@ def process_document_task(self, document_id: str) -> None:
             tmp_path.write_bytes(file_bytes)
 
             try:
-                pages = load_pdf(tmp_path)
-                chunks = split_documents(pages)
+                loaded = load_pdf(tmp_path)
+                chunks = split_documents(loaded.pages)
             except PDFLoadError as exc:
                 _mark_failed(db, document, str(exc))
                 return
 
             if not chunks:
-                _mark_failed(db, document, f"No text chunks produced from '{document.filename}'.")
+                reason = (
+                    f"OCR could not extract readable text from any page of '{document.filename}' "
+                    "(scanned document) — nothing to index."
+                    if loaded.ocr_warnings
+                    else f"No text chunks produced from '{document.filename}'."
+                )
+                _mark_failed(db, document, reason)
                 return
 
             try:
@@ -69,8 +75,18 @@ def process_document_task(self, document_id: str) -> None:
 
         document.status = DocumentStatus.READY
         document.chunk_count = len(chunks)
-        document.page_count = len(pages)
-        document.error_message = None
+        document.page_count = len(loaded.pages)
+        # Reuses error_message as a non-fatal processing note on an otherwise
+        # successful document — e.g. a handful of scanned pages OCR couldn't
+        # read — rather than a schema addition just for warning text. The
+        # document is still READY; the frontend renders this distinctly from
+        # a FAILED document's error_message.
+        document.error_message = (
+            f"{len(loaded.ocr_warnings)} page(s) needed OCR and could not be fully read: "
+            + "; ".join(loaded.ocr_warnings)
+            if loaded.ocr_warnings
+            else None
+        )
         db.commit()
         logger.info("Document %s processed successfully (%d chunks).", document_id, len(chunks))
 

@@ -18,6 +18,7 @@ from google.genai import types
 
 from app.core.config import get_settings
 from app.rag.context import SourceCitation, build_context
+from app.rag.query_rewrite import rewrite_query
 from app.rag.retrieval import RetrievalError, retrieve_documents
 
 logger = logging.getLogger(__name__)
@@ -68,30 +69,23 @@ def _recent_history(history: list[ConversationTurn] | None) -> list[Conversation
     return history[-max_messages:]
 
 
-def _build_retrieval_query(question: str, recent_history: list[ConversationTurn]) -> str:
-    """
-    Fold the most recent user turns into the retrieval query.
-
-    Without this, a follow-up like "what does that section say?" has no
-    referent for the search — it would retrieve against the pronoun alone.
-    Only user turns are folded in; assistant turns are conversational
-    filler for retrieval purposes, not search-worthy content.
-    """
-    recent_user_turns = [turn.content for turn in recent_history if turn.role == "user"][-2:]
-    if not recent_user_turns:
-        return question
-    return " ".join([*recent_user_turns, question])
-
-
 def retrieve_context(
     question: str,
     org_id: uuid.UUID,
     history: list[ConversationTurn] | None = None,
 ) -> tuple[str, list[SourceCitation]]:
-    """Retrieve relevant chunks for an org and build bounded, citable context."""
+    """Retrieve relevant chunks for an org and build bounded, citable context.
+
+    The question is rewritten into a standalone retrieval query first (folding
+    in conversation history so follow-ups like "what about last year?" resolve
+    to something searchable) — see `app.rag.query_rewrite`. Only the retrieval
+    *query* changes; `question` itself still flows on unchanged to answer
+    generation, so a bad rewrite can degrade which chunks get retrieved but
+    can never itself become a fact in the answer.
+    """
     settings = get_settings()
     recent_history = _recent_history(history)
-    retrieval_query = _build_retrieval_query(question, recent_history)
+    retrieval_query = rewrite_query(question, recent_history)
     try:
         matches = retrieve_documents(retrieval_query, org_id, k=settings.retrieval_top_k)
     except RetrievalError as exc:
