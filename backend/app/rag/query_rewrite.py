@@ -51,7 +51,9 @@ class QueryRewriteError(Exception):
 def _get_client() -> genai.Client:
     settings = get_settings()
     if not settings.gemini_api_key:
-        raise QueryRewriteError("GEMINI_API_KEY is not configured.")
+        raise QueryRewriteError(
+            "GEMINI_API_KEY is not configured. Add a newly generated key to the server-side deployment secrets."
+        )
     return genai.Client(api_key=settings.gemini_api_key)
 
 

@@ -2,8 +2,18 @@ import type { UserRole } from "@/lib/roles";
 
 export type { UserRole };
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") ?? "";
 const API_PREFIX = "/api/v1";
+
+function requireApiBaseUrl(): string {
+  if (!API_BASE_URL) {
+    throw new ApiError(
+      "The application is missing NEXT_PUBLIC_API_URL. Configure it with the public URL of the API and redeploy the web app.",
+      503
+    );
+  }
+  return API_BASE_URL;
+}
 
 export class ApiError extends Error {
   status: number;
@@ -156,7 +166,7 @@ async function refreshAccessToken(): Promise<boolean> {
   const refreshToken = getRefreshToken();
   if (!refreshToken) return false;
 
-  const response = await fetch(`${API_BASE_URL}${API_PREFIX}/auth/refresh`, {
+  const response = await fetch(`${requireApiBaseUrl()}${API_PREFIX}/auth/refresh`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ refresh_token: refreshToken }),
@@ -188,7 +198,8 @@ async function apiFetch(path: string, options: RequestOptions = {}): Promise<Res
     return merged;
   };
 
-  let response = await fetch(`${API_BASE_URL}${API_PREFIX}${path}`, {
+  const apiBaseUrl = requireApiBaseUrl();
+  let response = await fetch(`${apiBaseUrl}${API_PREFIX}${path}`, {
     ...rest,
     headers: buildHeaders(),
   });
@@ -196,7 +207,7 @@ async function apiFetch(path: string, options: RequestOptions = {}): Promise<Res
   if (response.status === 401 && authenticated) {
     const refreshed = await refreshAccessToken();
     if (refreshed) {
-      response = await fetch(`${API_BASE_URL}${API_PREFIX}${path}`, {
+      response = await fetch(`${apiBaseUrl}${API_PREFIX}${path}`, {
         ...rest,
         headers: buildHeaders(),
       });

@@ -14,7 +14,7 @@
 
 ## Project Status
 
-This is a working MVP / portfolio project — the full pipeline (auth, multi-tenancy, RBAC, async ingestion with OCR, hybrid retrieval, conversational RAG) runs end-to-end locally via `docker-compose up`. Production hardening (TLS/reverse proxy, secrets management, non-dev container configuration) and cloud deployment are future work, not yet done — see [Docker / Deployment Overview](#docker--deployment-overview) and [Future Improvements](#future-improvements).
+This is a working MVP / portfolio project — the full pipeline (auth, multi-tenancy, RBAC, async ingestion with OCR, hybrid retrieval, conversational RAG) runs end-to-end locally via `docker-compose up`. A production Docker Compose deployment with TLS is included in [`docker-compose.production.yml`](./docker-compose.production.yml); see [Production deployment](#production-deployment).
 
 ## Overview
 
@@ -252,6 +252,35 @@ Frontend config (`frontend/.env.local`, see `.env.local.example`): `NEXT_PUBLIC_
 `docker-compose.yml` runs seven services: `postgres`, `qdrant`, `minio`, `redis`, `api`, `worker`, and `web`. The `api` container runs Alembic migrations on startup, then Uvicorn with `--reload` for local iteration; `worker` runs a Celery worker consuming the `ingestion` queue; both mount `./backend` as a live volume. `web` is built with `NEXT_PUBLIC_API_URL` baked in at build time.
 
 This compose setup is oriented at local development, not a hardened production deployment — there's no reverse proxy/TLS termination, no secrets manager (`.env` is loaded directly), and `--reload` plus bind-mounted source aren't appropriate for production containers. See **Future Improvements** below.
+
+## Production Deployment
+
+This repository is **not a Streamlit application**. It is a Next.js client plus FastAPI API, Celery worker, PostgreSQL, Qdrant, Redis, and S3-compatible storage. Streamlit Community Cloud cannot host this architecture or its persistent services. The supported production route is a Linux VM (or a container platform that supports the full Compose stack) with DNS for two hostnames:
+
+- `APP_DOMAIN` for the web application and API (for example, `assistant.example.com`)
+- `S3_PUBLIC_DOMAIN` for time-limited document view/download URLs (for example, `storage.example.com`)
+
+The production Compose file runs Caddy as the only public-facing service. It automatically obtains and renews TLS certificates once both DNS records point to the production host. Postgres, Qdrant, Redis, MinIO, the API, and the worker remain private to the Docker network. Uploaded company PDFs are persisted in the named `minio_data` volume; they are not read from a developer's computer after upload.
+
+1. Provision a Linux host with Docker Engine and Docker Compose v2. Point the two DNS names above at it and allow inbound TCP 80/443.
+2. Copy [`deploy/.env.production.example`](./deploy/.env.production.example) to `deploy/.env.production` on that host and lock it down with `chmod 600 deploy/.env.production`. Replace every `replace-with-...` value with a unique secret. Generate the database password with `openssl rand -hex 32`, then use the exact same value in `POSTGRES_PASSWORD` and `DATABASE_URL`. Generate the two MinIO values with `openssl rand -hex 32`; `S3_ACCESS_KEY`/`S3_SECRET_KEY` must equal the corresponding MinIO root credentials.
+3. Create a **new** Gemini API key and assign it only to `GEMINI_API_KEY` in `deploy/.env.production`. Never place it in source control, browser-visible `NEXT_PUBLIC_*` variables, or a frontend environment file.
+4. From the repository root, run the non-destructive preflight check. It validates the secret-file permissions, placeholders, DNS resolution, and Compose syntax without printing secrets:
+
+   ```bash
+   chmod +x deploy/preflight.sh
+   ./deploy/preflight.sh
+   ```
+
+5. Start the production stack:
+
+   ```bash
+   docker compose --env-file deploy/.env.production -f docker-compose.production.yml up -d --build
+   ```
+
+6. Verify startup with `docker compose --env-file deploy/.env.production -f docker-compose.production.yml ps` and open `https://APP_DOMAIN/ready`; it must return `{"status":"ready"}`. Then register an organization, upload a representative PDF, wait for its status to become **Ready**, and ask a question whose answer is stated in that PDF. Confirm the response contains the expected source citation.
+
+The frontend requires `NEXT_PUBLIC_API_URL` at build time and intentionally has no `localhost` fallback. `CORS_ORIGINS` must be a JSON array containing the exact HTTPS application origin, e.g. `["https://assistant.example.com"]`.
 
 ## Example Usage
 

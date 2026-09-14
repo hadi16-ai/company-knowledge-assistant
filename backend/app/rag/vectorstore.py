@@ -36,7 +36,7 @@ def collection_name_for_org(org_id: uuid.UUID) -> str:
 def get_qdrant_client() -> QdrantClient:
     """Return a Qdrant client configured from application settings."""
     settings = get_settings()
-    return QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
+    return QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key, timeout=5)
 
 
 def ensure_collection(client: QdrantClient, org_id: uuid.UUID) -> str:

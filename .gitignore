@@ -10,6 +10,7 @@ __pycache__/
 .env
 backend/.env
 frontend/.env.local
+deploy/.env.production
 
 # v1 (Streamlit) local storage — superseded by Postgres/Qdrant/MinIO in v2
 data/uploads/*

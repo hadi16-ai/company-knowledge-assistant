@@ -1,0 +1,24 @@
+{$APP_DOMAIN} {
+    encode zstd gzip
+
+    handle /api/* {
+        reverse_proxy api:8000
+    }
+
+    handle /health {
+        reverse_proxy api:8000
+    }
+
+    handle /ready {
+        reverse_proxy api:8000
+    }
+
+    handle {
+        reverse_proxy web:3000
+    }
+}
+
+{$S3_PUBLIC_DOMAIN} {
+    encode zstd gzip
+    reverse_proxy minio:9000
+}

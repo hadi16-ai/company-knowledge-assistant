@@ -33,7 +33,7 @@ def get_s3_client() -> BaseClient:
         aws_access_key_id=settings.s3_access_key,
         aws_secret_access_key=settings.s3_secret_key,
         region_name=settings.s3_region,
-        config=Config(signature_version="s3v4"),
+        config=Config(signature_version="s3v4", connect_timeout=5, read_timeout=5, retries={"max_attempts": 3}),
         use_ssl=settings.s3_use_ssl,
     )
 
@@ -57,7 +57,7 @@ def _get_presign_client() -> BaseClient:
         aws_access_key_id=settings.s3_access_key,
         aws_secret_access_key=settings.s3_secret_key,
         region_name=settings.s3_region,
-        config=Config(signature_version="s3v4"),
+        config=Config(signature_version="s3v4", connect_timeout=5, read_timeout=5, retries={"max_attempts": 3}),
         use_ssl=settings.s3_use_ssl,
     )
 

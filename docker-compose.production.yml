@@ -1,0 +1,108 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: deploy/.env.production
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  qdrant:
+    image: qdrant/qdrant:v1.16.3
+    restart: unless-stopped
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    restart: unless-stopped
+    env_file: deploy/.env.production
+    command: server /data
+    volumes:
+      - minio_data:/data
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    env_file: deploy/.env.production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      minio:
+        condition: service_started
+      redis:
+        condition: service_started
+    command: >
+      sh -c "alembic upgrade head &&
+             exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2"
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://localhost:8000/ready >/dev/null"]
+      interval: 15s
+      timeout: 25s
+      retries: 8
+      start_period: 90s
+
+  worker:
+    build: ./backend
+    restart: unless-stopped
+    env_file: deploy/.env.production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      minio:
+        condition: service_started
+      redis:
+        condition: service_started
+    command: celery -A app.workers.celery_app worker --loglevel=info -Q ingestion
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?Set NEXT_PUBLIC_API_URL in deploy/.env.production}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    env_file: deploy/.env.production
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
+      minio:
+        condition: service_started
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  minio_data:
+  redis_data:
+  caddy_data:
+  caddy_config:
