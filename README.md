@@ -16,6 +16,8 @@
 
 This is a working MVP / portfolio project — the full pipeline (auth, multi-tenancy, RBAC, async ingestion with OCR, hybrid retrieval, conversational RAG) runs end-to-end locally via `docker-compose up`. A production Docker Compose deployment with TLS is included in [`docker-compose.production.yml`](./docker-compose.production.yml); see [Production deployment](#production-deployment).
 
+**Live demo:** intentionally not hosted publicly right now. This system runs seven backing services (PostgreSQL, Qdrant, MinIO, Redis, the API, a Celery worker, and the web app) plus two locally-run ML models (embedding + cross-encoder reranking) — a footprint suited to a persistent VM or equivalent, not the always-free serverless tiers that fit a lightweight demo. Rather than simplify the architecture just to force it onto a free host, the production deployment path below is fully built and documented, and stands as evidence of how this system is meant to run; standing it up publicly is deferred until it's worth the always-on infrastructure cost. Clone-and-run locally (below) reproduces the full system, including production parity via `docker-compose.production.yml`.
+
 ## Overview
 
 Company knowledge is usually scattered across long PDFs — policies, onboarding guides, internal reference docs — that are slow to search and hard to verify once found. This platform gives every organization its own isolated, grounded Q&A workspace: upload PDFs (including scanned ones), ask questions in plain language across multi-turn conversations, and get streamed answers backed by cited source passages, all behind real authentication and a five-tier permission model.
@@ -254,6 +256,8 @@ Frontend config (`frontend/.env.local`, see `.env.local.example`): `NEXT_PUBLIC_
 This compose setup is oriented at local development, not a hardened production deployment — there's no reverse proxy/TLS termination, no secrets manager (`.env` is loaded directly), and `--reload` plus bind-mounted source aren't appropriate for production containers. See **Future Improvements** below.
 
 ## Production Deployment
+
+This is the documented, tested path for standing the full stack up on a real host — kept current and validated (`docker compose config` against both `docker-compose.yml` and `docker-compose.production.yml` passes) even though a public instance isn't running right now (see [Project Status](#project-status)).
 
 This repository is **not a Streamlit application**. It is a Next.js client plus FastAPI API, Celery worker, PostgreSQL, Qdrant, Redis, and S3-compatible storage. Streamlit Community Cloud cannot host this architecture or its persistent services. The supported production route is a Linux VM (or a container platform that supports the full Compose stack) with DNS for two hostnames:
 
